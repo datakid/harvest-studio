@@ -11,7 +11,7 @@ A standalone web app that harvests favicons for apps, traces glyphs, colours the
 npm install        # also installs core/
 npm run build      # writes dist/
 npm run serve      # http://localhost:4173
-npm test           # launcher, proxy, sources and UI suites
+npm test           # builds, then runs the launcher, proxy, sources, UI and feature suites
 ```
 
 Node 22 or newer. The UI suite drives Chromium through Playwright (set `PLAYWRIGHT_BROWSERS_PATH` or have Chromium installed).
@@ -76,3 +76,17 @@ Push this folder as its own repository and import it in Vercel with the default 
 ## Licences
 
 The traced glyphs use `esm-potrace-wasm`, which is GPL-2.0 (it wraps potrace). The built Studio bundles it, so distributing the built app means following the GPL for that bundle. `@resvg/resvg-wasm` is MPL-2.0, the `@jsquash/*` codecs are Apache-2.0, `svgo`, `fflate`, `omggif` and `decode-ico` are MIT, and Readex Pro is OFL-1.1.
+
+## Opening earlier work
+
+- **Existing sets:** drop `manifest.v2.json` together with its `atlas.<hash>.webp` (and optionally `glyph-atlas.<hash>.webp` and `glyphs.<hash>.svg`) and press "Open this set". Colours, kept colours and the seed carry over, and the mode is set to Follow so nothing is recoloured on open. The icons come from the atlas cells, so they are at the atlas cell size (128 px by default).
+- **Projects:** every working set is saved automatically in this browser (IndexedDB, newest 12) and listed on the start screen under "Recent work". A restored project keeps its colours, locks, seed and mode. Images you replaced lose the full-size original, so a favicon pack's 512 px icon is made from the 192 px image.
+- **Palettes:** the Palette mode spreads a palette evenly across the icons, with optional slight variation. Start from a preset, build one from a colour (analogous, complementary, triad, split, four, shades) or edit the swatches, then save it by name. Saved palettes live in this browser's local storage.
+
+## Known limits
+
+- An SVG favicon that draws an emoji or other text (`<text>`) cannot be rendered, because the renderer has no fonts. Those sites report "fully transparent"; drop the image in yourself or use Replace image.
+
+## Not included
+
+Committing exports straight to GitHub (do that from your own repo), and the CLI does not offer the Palette mode.

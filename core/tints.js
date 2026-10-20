@@ -4,7 +4,7 @@ export const MIN_TINT_SEP = 0.04;
 export const GROUP_DELTA_E = 0.06;
 export const MAX_DRAWS = 12;
 export const DEFAULT_SEED = '1f2e3d4c';
-export const MODES = ['follow', 'mono', 'family'];
+export const MODES = ['follow', 'mono', 'palette', 'family', 'keep'];
 
 const RAD = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -204,6 +204,35 @@ export const monoTints = (entries, appOf, { color, seed = DEFAULT_SEED, vary = t
   return { adjusted, groups: [eligible], tight };
 };
 
+export const paletteTints = (entries, appOf, { colors = [], seed = DEFAULT_SEED, vary = true, spread = 1, keys = null } = {}) => {
+  const palette = colors.filter(isHex);
+  if (!palette.length) return { adjusted: [], groups: [], tight: [] };
+  const bases = palette.map((c) => tintFromHex(c));
+  const eligible = Object.keys(entries)
+    .filter((k) => appOf.has(k) && (!keys || keys.has(k)))
+    .sort((a, b) => hash32(seed + ':' + a) - hash32(seed + ':' + b) || (a < b ? -1 : 1));
+  const placed = [];
+  const adjusted = [];
+  const tight = [];
+  const groups = palette.map(() => []);
+  eligible.forEach((key, i) => {
+    const e = entries[key];
+    if (e.sourceTint === undefined && validTint(e.tint)) e.sourceTint = e.tint;
+    const slot = i % palette.length;
+    let tint = bases[slot];
+    if (vary) {
+      const r = settle(key, tint, rngFor(seed, key), spread, placed, appOf.get(key));
+      tint = r.tint;
+      if (r.tight) tight.push(key);
+    }
+    e.tint = tint;
+    adjusted.push(key);
+    groups[slot].push(key);
+    placed.push({ appId: appOf.get(key), lab: hexToLab(tint[0]) });
+  });
+  return { adjusted, groups: groups.filter((g) => g.length), tight };
+};
+
 export const tintFromColour = (hex) => tintFromHex(hex);
 
 export const resetToSource = (entries) => {
@@ -219,6 +248,7 @@ export const applyMode = (entries, appOf, options = {}) => {
   const { mode = 'follow' } = options;
   if (mode === 'keep') return { adjusted: [], groups: [], tight: [] };
   if (mode === 'mono') return monoTints(entries, appOf, options);
+  if (mode === 'palette') return paletteTints(entries, appOf, options);
   if (mode === 'family') return { adjusted: separateTints(entries, appOf), groups: [], tight: [] };
   return followTints(entries, appOf, options);
 };

@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { check, finish, studioDir } from './util.mjs';
 import { scanJson, hostKey, normalizeUrl, uniqueKeys } from '../core/sources.js';
+import { readLinks, readBaseHref } from '../core/discover.js';
 
 const links = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.json'), 'utf8'));
 
@@ -61,6 +62,21 @@ await check('url helpers normalise addresses', () => {
   assert.equal(normalizeUrl('http://x.test/a b'), null);
   assert.equal(normalizeUrl('hello'), null);
   assert.equal(hostKey('https://www.Example.com/app/'), 'example-com-app');
+});
+
+await check('icon links keep a > inside a quoted attribute, as inline SVG favicons do', () => {
+  const raw = readLinks('<head><link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 9 9\'><rect width=\'9\' height=\'9\'/></svg>"><link rel="apple-touch-icon" href="/a.png"></head>');
+  assert.equal(raw.length, 2);
+  assert.match(raw[0].href, /<\/svg>$/);
+  assert.equal(raw[1].href, '/a.png');
+  const single = readLinks("<link rel='icon' href='data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\"><circle r=\"4\"/></svg>'>");
+  assert.match(single[0].href, /<circle r="4"\/><\/svg>$/);
+  assert.match(readBaseHref('<base href="https://cdn.test/x/?a=1>2">', 'https://page.test/'), /^https:\/\/cdn\.test\/x\/\?a=1/);
+});
+
+await check('icon links ignore commented-out and script-embedded tags', () => {
+  const found = readLinks('<!-- <link rel="icon" href="/old.png"> --><script>var s = \'<link rel="icon" href="/js.png">\';</script><link rel=icon href=/real.png>');
+  assert.deepEqual(found.map((l) => l.href), ['/real.png']);
 });
 
 finish();

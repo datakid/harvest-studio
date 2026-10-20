@@ -52,6 +52,7 @@ export const ICONS = {
   reset: 'M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8M3 3v5h5',
   image: 'M4 5h16v14H4zM8.5 10a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM20 15l-5-5L5 19',
   close: 'M6 6l12 12M18 6L6 18',
+  plus: 'M12 5v14M5 12h14',
   check: 'M5 12.5l4.5 4.5L19 7.5',
   warn: 'M12 4l9 16H3zM12 10v4M12 17.5v.01',
   folder: 'M3 6h6l2 2h10v11H3z',

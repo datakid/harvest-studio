@@ -68,7 +68,7 @@ const parseAttrs = (src) => {
 export const readLinks = (html) => {
   const clean = String(html).replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|template|noscript)\b[\s\S]*?<\/\1\s*>/gi, '');
   const links = [];
-  const re = /<link\b([^>]*)>/gi;
+  const re = /<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
   let m;
   while ((m = re.exec(clean))) {
     const a = parseAttrs(m[1]);
@@ -84,7 +84,7 @@ export const readLinks = (html) => {
 };
 
 export const readBaseHref = (html, pageUrl) => {
-  const m = /<base\b([^>]*)>/i.exec(String(html).replace(/<!--[\s\S]*?-->/g, ''));
+  const m = /<base\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(String(html).replace(/<!--[\s\S]*?-->/g, ''));
   if (!m) return pageUrl;
   const a = parseAttrs(m[1]);
   return a.href ? resolveHref(a.href, pageUrl) || pageUrl : pageUrl;

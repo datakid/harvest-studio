@@ -7,7 +7,7 @@ export const randomSeed = () => {
   return a[0].toString(16).padStart(8, '0');
 };
 
-export const recolour = (records, { mode, seed, monoColor, monoVary, spread }) => {
+export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary }) => {
   const list = [...records.values()].filter((r) => r.hasImage);
   const appOf = new Map(list.map((r) => [r.key, r.appId]));
   const entries = {};
@@ -16,7 +16,7 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread }) =
     if (r.locked) lockedEntries[r.key] = { tint: r.tint, locked: true };
     else entries[r.key] = { tint: r.base, locked: false };
   }
-  const res = applyMode(entries, appOf, { mode, seed, color: monoColor, vary: monoVary, spread });
+  const res = applyMode(entries, appOf, { mode, seed, color: monoColor, vary: mode === 'palette' ? paletteVary : monoVary, colors: paletteColors, spread });
   const all = { ...entries, ...lockedEntries };
   guardContrast(all);
   const tight = new Set(res.tight || []);
@@ -55,7 +55,7 @@ export const tileColours = (tint, { colors, theme }) => {
 };
 
 export const requiredPatch = (rec, mode, seed) => {
-  const seeded = (mode === 'follow' || mode === 'mono') && !rec.locked;
+  const seeded = (mode === 'follow' || mode === 'mono' || mode === 'palette') && !rec.locked;
   return {
     tint: rec.tint,
     sourceTint: rec.base && rec.tint && rec.base.join() !== rec.tint.join() ? rec.base : undefined,

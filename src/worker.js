@@ -3,6 +3,8 @@ import {
   runHarvest,
   processTarget,
   analyzeIcon,
+  readPrevious,
+  decodeImage,
   traceGlyph,
   pixelHash,
   encodePng,
@@ -107,6 +109,63 @@ const handlers = {
       if (r.glyph) transfer.push(r.glyph.buffer);
     }
     return { value: { records: out, items: result.report.items, summary: result.report.summary }, transfer };
+  },
+
+  async importManifest(p) {
+    const files = new Map(Object.entries(p.files || {}));
+    const io = { readOutput: async (name) => (name === 'manifest.v2.json' ? new TextEncoder().encode(JSON.stringify(p.manifest)) : files.get(name) || null) };
+    const { prev, cell, seed } = await readPrevious([], io);
+    records = new Map();
+    const items = [];
+    const out = [];
+    for (const [key, v] of [...prev.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+      const appId = key.split('--')[0];
+      const hasImage = !!v.image;
+      const rec = {
+        key,
+        appId,
+        status: hasImage ? v.status || 'found' : 'notfound',
+        image: v.image || null,
+        glyphImage: v.glyphImage || null,
+        trace: v.trace ? { ...v.trace, bytes: v.trace.d.length } : null,
+        base: v.sourceTint || v.tint || null,
+        tint: v.tint || null,
+        sourceTint: v.sourceTint || null,
+        locked: !!v.locked,
+        hash: v.hash || null
+      };
+      records.set(key, rec);
+      items.push({ key, status: rec.status, source: { type: 'manifest', href: '' }, error: hasImage ? null : 'not in the atlas' });
+      out.push(await serialise(rec));
+    }
+    const transfer = [];
+    for (const r of out) {
+      if (r.favicon) transfer.push(r.favicon.buffer);
+      if (r.glyph) transfer.push(r.glyph.buffer);
+    }
+    return { value: { records: out, items, seed: seed || null, cell: cell || DEFAULT_CELL }, transfer };
+  },
+
+  async restore(p) {
+    records = new Map();
+    for (const r of p.records) {
+      const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
+      const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
+      records.set(r.key, {
+        key: r.key,
+        appId: r.appId,
+        status: r.status,
+        image,
+        glyphImage,
+        trace: r.trace || null,
+        base: r.base || null,
+        tint: r.tint || null,
+        sourceTint: r.sourceTint || null,
+        locked: !!r.locked,
+        hash: r.hash || null
+      });
+    }
+    return { ok: true, count: records.size };
   },
 
   async replace(p) {

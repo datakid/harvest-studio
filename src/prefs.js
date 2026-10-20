@@ -1,5 +1,5 @@
 const KEY = 'hs:prefs';
-const defaults = { theme: 'system', lang: 'en', mode: 'follow', spread: 1, monoColor: '#f0475c', monoVary: true, corners: 'balanced', colors: 'vivid', proxyUrl: '' };
+const defaults = { theme: 'system', lang: 'en', mode: 'follow', spread: 1, monoColor: '#f0475c', monoVary: true, paletteColors: ['#ffb347', '#ff7a59', '#f0475c', '#b4417a', '#6a3fa0'], paletteVary: true, palettes: [], corners: 'balanced', colors: 'vivid', proxyUrl: '' };
 
 export const loadPrefs = () => {
   try {

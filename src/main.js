@@ -6,6 +6,8 @@ import { recolour, randomSeed, setManualColour, effectiveTheme, tileColours, req
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
 import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED } from '../core/tints.js';
+import { PRESETS, HARMONIES, harmony, cleanPalette } from '../core/palettes.js';
+import { listProjects, saveProject, loadProject, removeProject, newId } from './projects.js';
 
 const prefs = loadPrefs();
 setLang(prefs.lang);
@@ -14,7 +16,11 @@ let proxyToken = loadToken();
 
 const state = {
   stage: 'intake',
-  pending: { urlText: '', files: [], jsons: [] },
+  pending: { urlText: '', files: [], jsons: [], bundle: { manifest: null, files: new Map() } },
+  projects: [],
+  projectId: null,
+  projectName: '',
+  cell: null,
   records: new Map(),
   order: [],
   items: new Map(),
@@ -68,6 +74,7 @@ const statusKey = (s) => 'status' + s.charAt(0).toUpperCase() + s.slice(1);
 
 const decodeRecord = (r, item) => {
   const rec = { ...r, hasImage: !!r.favicon, name: (item && item.name) || r.key };
+  rec.raw = { favicon: r.favicon || null, glyph: r.glyph || null };
   if (r.favicon) rec.faviconUrl = URL.createObjectURL(new Blob([r.favicon], { type: 'image/png' }));
   if (r.trace && r.trace.accepted) rec.mask = 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="' + r.trace.d + '"/></svg>') + '")';
   else if (r.glyph) rec.mask = 'url(' + URL.createObjectURL(new Blob([r.glyph], { type: 'image/png' })) + ')';
@@ -76,7 +83,57 @@ const decodeRecord = (r, item) => {
   return rec;
 };
 
-const applyColours = () => recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread });
+const applyColours = () => {
+  const res = recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary });
+  scheduleSave();
+  return res;
+};
+
+let saveTimer = 0;
+
+const snapshot = () => ({
+  seed: state.seed,
+  cell: state.cell,
+  selected: state.selected,
+  settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
+  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null })),
+  records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
+});
+
+const scheduleSave = () => {
+  if (state.stage !== 'work' || !state.projectId) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    const imaged = [...state.records.values()].filter((r) => r.hasImage);
+    const meta = { id: state.projectId, name: state.projectName, updatedAt: Date.now(), count: imaged.length, dots: imaged.slice(0, 8).map((r) => (r.tint && r.tint[0]) || '#8c95b6') };
+    if (await saveProject(meta, snapshot())) {
+      state.projects = await listProjects();
+      window.__studio.saved = (window.__studio.saved || 0) + 1;
+    }
+  }, 700);
+};
+
+const defaultName = () => t('projectDefault', { n: [...state.records.values()].filter((r) => r.hasImage).length });
+
+const adopt = (result, nameOf) => {
+  state.items = new Map(result.items.map((i) => [i.key, { ...i, name: nameOf(i.key) }]));
+  state.records = new Map();
+  for (const r of result.records) state.records.set(r.key, decodeRecord(r, state.items.get(r.key)));
+  for (const item of result.items) if (!state.records.has(item.key)) state.records.set(item.key, { key: item.key, appId: item.key, status: 'notfound', hasImage: false, name: item.name, base: null, tint: null, locked: false, trace: null });
+  state.order = [...state.records.keys()].sort();
+};
+
+const enterWork = () => {
+  state.selected = state.order.find((k) => state.records.get(k).hasImage) || null;
+  state.stage = 'work';
+  state.bloom = true;
+  state.dirty = true;
+  launcherBuild = null;
+  state.projectId = newId();
+  state.projectName = defaultName();
+  applyColours();
+  renderMain();
+};
 
 const seg = (name, options, value, onPick, { wide = false } = {}) =>
   h(
@@ -186,12 +243,65 @@ const scanPanel = (json, index) => {
   return panel;
 };
 
+const BUNDLE_RE = /^(atlas|glyph-atlas|glyphs)\.[0-9a-f]{8}\.(webp|svg)$/;
+const looksLikeManifest = (data) => !!(data && data.version === 2 && data.icons && typeof data.icons === 'object' && data.atlas);
+const baseOf = (file) => String(file || '').split('/').pop();
+
+const manifestNeeds = () => {
+  const m = state.pending.bundle.manifest;
+  if (!m) return null;
+  const wanted = [m.data.atlas && baseOf(m.data.atlas.file), m.data.glyphAtlas && baseOf(m.data.glyphAtlas.file), m.data.glyphSprite && baseOf(m.data.glyphSprite.file)].filter(Boolean);
+  const missing = wanted.filter((f) => !state.pending.bundle.files.has(f));
+  const atlasMissing = !!(m.data.atlas && !state.pending.bundle.files.has(baseOf(m.data.atlas.file)));
+  return { missing, atlasMissing, count: Object.keys(m.data.icons).length };
+};
+
+const manifestPanel = () => {
+  const need = manifestNeeds();
+  if (!need) return null;
+  return h(
+    'div',
+    { class: 'scan', id: 'manifest-panel' },
+    h('h3', null, t('manifestFound', { n: need.count }) + ' · ' + state.pending.bundle.manifest.name),
+    need.missing.length ? h('p', { class: 'hint-text' }, need.missing.map((f) => t('manifestNeed', { file: f })).join(' ')) : h('p', { class: 'hint-text' }, t('manifestReady')),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary', id: 'open-set', type: 'button', disabled: need.atlasMissing, onClick: openManifest }, t('manifestOpen')), h('button', { class: 'btn quiet', type: 'button', onClick: () => { state.pending.bundle = { manifest: null, files: new Map() }; renderMain(); } }, icon('trash', { size: 16 }), t('close')))
+  );
+};
+
+const openManifest = async () => {
+  const b = state.pending.bundle;
+  state.error = null;
+  state.stage = 'busy';
+  state.ghosts = Object.keys(b.manifest.data.icons).length;
+  state.progress = { done: 0, total: 1, phase: 'fetch' };
+  renderMain();
+  try {
+    const files = {};
+    for (const [name, f] of b.files) files[name] = new Uint8Array(await f.arrayBuffer());
+    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    const result = await client.call('importManifest', { manifest: b.manifest.data, files });
+    state.seed = result.seed || DEFAULT_SEED;
+    state.cell = result.cell;
+    prefs.mode = 'follow';
+    save();
+    adopt(result, (k) => k);
+    enterWork();
+  } catch (e) {
+    state.stage = 'intake';
+    state.error = t('manifestFailed', { why: e.message || String(e) });
+    renderMain();
+  }
+};
+
 const addFiles = async (files) => {
   state.error = null;
   for (const f of files) {
-    if (isJsonFile(f)) {
+    if (BUNDLE_RE.test(f.name)) state.pending.bundle.files.set(f.name, f);
+    else if (isJsonFile(f)) {
       try {
-        state.pending.jsons.push(await readJsonFile(f));
+        const j = await readJsonFile(f);
+        if (looksLikeManifest(j.data)) state.pending.bundle.manifest = j;
+        else state.pending.jsons.push(j);
       } catch {
         state.error = t('badJson') + ' ' + f.name;
       }
@@ -217,7 +327,7 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed }, {
+    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined }, {
       onProgress: (p) => {
         state.progress = p;
         updateProgress();
@@ -231,17 +341,9 @@ const startHarvest = async () => {
       return;
     }
     const names = new Map(targets.map((x) => [x.key, x]));
-    state.items = new Map(result.items.map((i) => [i.key, { ...i, name: (names.get(i.key) || {}).name || i.key }]));
-    state.records = new Map();
-    for (const r of result.records) state.records.set(r.key, decodeRecord(r, state.items.get(r.key)));
-    for (const item of result.items) if (!state.records.has(item.key)) state.records.set(item.key, { key: item.key, appId: item.key, status: 'notfound', hasImage: false, name: item.name, base: null, tint: null, locked: false, trace: null });
-    state.order = [...state.records.keys()].sort();
-    applyColours();
-    state.selected = state.order.find((k) => state.records.get(k).hasImage) || null;
-    state.stage = 'work';
-    state.bloom = true;
-    state.dirty = true;
-    renderMain();
+    state.cell = null;
+    adopt(result, (k) => (names.get(k) || {}).name || k);
+    enterWork();
   } catch (e) {
     state.stage = 'intake';
     const why = e.message || String(e);
@@ -258,6 +360,73 @@ const updateProgress = () => {
   const share = phase === 'trace' ? 0.5 + (done / total) * 0.5 : (done / total) * 0.5;
   bar.style.width = Math.round(share * 100) + '%';
   text.textContent = t(phase === 'trace' ? 'tracing' : 'fetching', { done, total });
+};
+
+const ago = (ms) => {
+  const mins = Math.round((Date.now() - ms) / 60000);
+  const rtf = new Intl.RelativeTimeFormat(getLang(), { numeric: 'auto' });
+  if (mins < 60) return rtf.format(-Math.max(mins, 0), 'minute');
+  if (mins < 1440) return rtf.format(-Math.round(mins / 60), 'hour');
+  return rtf.format(-Math.round(mins / 1440), 'day');
+};
+
+const recentsPanel = () => {
+  if (!state.projects.length) return null;
+  return h(
+    'section',
+    { class: 'recents', 'aria-labelledby': 'recents-title' },
+    h('h2', { id: 'recents-title' }, t('projectsTitle')),
+    h(
+      'ul',
+      null,
+      state.projects.map((p) =>
+        h(
+          'li',
+          null,
+          h('button', { class: 'recent', type: 'button', dataset: { id: p.id }, onClick: () => openProject(p), 'aria-label': t('projectOpen') + ' ' + p.name }, h('span', { class: 'dots', 'aria-hidden': 'true' }, (p.dots || []).map((c) => h('i', { style: { background: c } }))), h('span', { class: 'rname' }, p.name || t('projectsTitle')), h('small', null, t('projectIcons', { n: p.count }) + ' · ' + ago(p.updatedAt))),
+          h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('projectDelete', { name: p.name }), onClick: async () => { await removeProject(p.id); state.projects = await listProjects(); if (state.stage === 'intake') renderMain(); } }, icon('trash', { size: 16 }))
+        )
+      )
+    ),
+    h('p', { class: 'hint-text' }, t('projectsNote'))
+  );
+};
+
+const openProject = async (meta) => {
+  const payload = await loadProject(meta.id);
+  if (!payload) {
+    state.error = t('projectOpenFailed');
+    renderMain();
+    return;
+  }
+  state.error = null;
+  state.stage = 'busy';
+  state.ghosts = payload.records.length;
+  state.progress = { done: 0, total: 1, phase: 'fetch' };
+  renderMain();
+  try {
+    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    await client.call('restore', { records: payload.records });
+    Object.assign(prefs, payload.settings || {});
+    prefs.paletteColors = cleanPalette(prefs.paletteColors).length ? cleanPalette(prefs.paletteColors) : ['#f0475c'];
+    save();
+    state.seed = payload.seed || DEFAULT_SEED;
+    state.cell = payload.cell || null;
+    adopt({ records: payload.records, items: payload.items }, (k) => (payload.items.find((i) => i.key === k) || {}).name || k);
+    state.selected = payload.selected && state.records.has(payload.selected) ? payload.selected : null;
+    state.stage = 'work';
+    state.bloom = true;
+    state.dirty = true;
+    launcherBuild = null;
+    state.projectId = meta.id;
+    state.projectName = meta.name;
+    applyColours();
+    renderAll();
+  } catch (e) {
+    state.stage = 'intake';
+    state.error = t('projectOpenFailed') + ': ' + (e.message || e);
+    renderMain();
+  }
 };
 
 const renderIntake = () => {
@@ -317,8 +486,10 @@ const renderIntake = () => {
         ),
         drop,
         pendingChips(),
+        manifestPanel(),
         state.pending.jsons.map(scanPanel),
-        state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null
+        state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null,
+        recentsPanel()
       )
     ),
     sproutGrid()
@@ -402,6 +573,7 @@ const renderToolbar = () => {
   return h(
     'div',
     { class: 'toolbar' },
+    h('input', { class: 'proj-name', type: 'text', value: state.projectName, 'aria-label': t('projectName'), spellcheck: false, onInput: (e) => { state.projectName = e.target.value; scheduleSave(); } }),
     h('div', { class: 'stat' }, t('summary', { n: s.n, g: s.glyphs }), s.review ? h('small', null, t('review', { n: s.review })) : null),
     h('div', { class: 'spacer pv' }, h('span', null, t('previewColors')), seg(t('previewColors'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); renderMain(); })),
     h('div', { class: 'pv' }, h('span', null, t('previewCorners')), seg(t('previewCorners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); renderMain(); })),
@@ -430,8 +602,10 @@ const renderWork = () => {
 
 const startOver = () => {
   state.stage = 'intake';
-  state.pending = { urlText: '', files: [], jsons: [] };
+  state.pending = { urlText: '', files: [], jsons: [], bundle: { manifest: null, files: new Map() } };
   state.records = new Map();
+  state.projectId = null;
+  state.error = null;
   renderMain();
 };
 
@@ -449,8 +623,8 @@ const refreshTiles = () => {
   if (state.stage === 'work') renderInspector();
 };
 
-const MODES = () => [['follow', t('modeFollow')], ['mono', t('modeMono')], ['family', t('modeFamily')], ['keep', t('modeKeep')]];
-const MODE_HINT = { follow: 'modeFollowHint', mono: 'modeMonoHint', family: 'modeFamilyHint', keep: 'modeKeepHint' };
+const MODES = () => [['follow', t('modeFollow')], ['mono', t('modeMono')], ['palette', t('modePalette')], ['family', t('modeFamily')], ['keep', t('modeKeep')]];
+const MODE_HINT = { follow: 'modeFollowHint', mono: 'modeMonoHint', palette: 'modePaletteHint', family: 'modeFamilyHint', keep: 'modeKeepHint' };
 
 const colourPanel = () => {
   const panel = h('section', { class: 'panel' }, h('h2', null, t('colours')), seg(t('colours'), MODES(), prefs.mode, (v) => { prefs.mode = v; save(); applyColours(); refreshTiles(); }, { wide: true }), h('p', { class: 'hint-text' }, t(MODE_HINT[prefs.mode])));
@@ -476,7 +650,66 @@ const colourPanel = () => {
       prefs.monoVary ? h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onClick: () => { state.seed = randomSeed(); applyColours(); refreshTiles(); toast(t('shuffled')); } }, icon('shuffle', { size: 16 }), t('shuffle'))) : null
     );
   }
+  if (prefs.mode === 'palette') panel.append(...palettePanel());
   return panel;
+};
+
+const ui = { harmonyKind: 'analogous', harmonyBase: null, paletteName: '' };
+
+const strip = (colors) => h('span', { class: 'strip', 'aria-hidden': 'true' }, colors.map((c) => h('i', { style: { background: c } })));
+const sameColours = (a, b) => a.length === b.length && a.every((c, i) => c === b[i]);
+
+const setPalette = (colors) => {
+  const next = cleanPalette(colors);
+  if (!next.length) {
+    toast(t('paletteMin'));
+    return;
+  }
+  prefs.paletteColors = next;
+  save();
+  applyColours();
+  refreshTilesOnly();
+  renderInspector();
+};
+
+const palettePanel = () => {
+  const colors = prefs.paletteColors;
+  const base = ui.harmonyBase || colors[0];
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const out = [];
+  out.push(
+    h('div', { class: 'label' }, t('presets')),
+    h('div', { class: 'pal-list' }, PRESETS.map((p) => h('button', { class: 'pal-chip', type: 'button', 'aria-pressed': String(sameColours(colors, p.colors)), onClick: () => setPalette(p.colors) }, strip(p.colors), t('preset' + cap(p.id))))),
+    h('div', { class: 'label' }, t('harmony')),
+    h(
+      'div',
+      { class: 'colour-row' },
+      h('label', { class: 'picker', style: { background: base } }, h('span', { class: 'sr' }, t('pickColour')), h('input', { type: 'color', value: base, onInput: (e) => { e.target.parentElement.style.background = e.target.value; }, onChange: (e) => { ui.harmonyBase = e.target.value; setPalette(harmony(ui.harmonyBase, ui.harmonyKind)); } })),
+      h('select', { 'aria-label': t('harmony'), onChange: (e) => { ui.harmonyKind = e.target.value; setPalette(harmony(base, ui.harmonyKind)); } }, HARMONIES.map((k) => h('option', { value: k, selected: k === ui.harmonyKind }, t('harmony' + cap(k)))))
+    ),
+    h('div', { class: 'label' }, t('yourPalette')),
+    h(
+      'div',
+      { class: 'pal-list' },
+      colors.map((c) => h('span', { class: 'pal-sw', style: { background: c } }, h('button', { type: 'button', 'aria-label': t('removeColour', { c }), onClick: () => setPalette(colors.filter((x) => x !== c)) }, icon('close', { size: 12, stroke: 2.6 })))),
+      colors.length < 12 ? h('label', { class: 'pal-add' }, icon('plus', { size: 16 }), h('span', { class: 'sr' }, t('addColour')), h('input', { type: 'color', class: 'sr', value: colors[colors.length - 1], onChange: (e) => setPalette([...colors, e.target.value]) })) : null
+    ),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: prefs.paletteVary, onChange: (e) => { prefs.paletteVary = e.target.checked; save(); applyColours(); refreshTilesOnly(); } }), t('vary')),
+    prefs.paletteVary ? h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', onClick: () => { state.seed = randomSeed(); applyColours(); refreshTiles(); toast(t('shuffled')); } }, icon('shuffle', { size: 16 }), t('shuffle'))) : null,
+    h(
+      'form',
+      { class: 'pal-save', onSubmit: (e) => { e.preventDefault(); const name = ui.paletteName.trim(); if (!name) return; prefs.palettes = [{ name, colors: [...colors] }, ...prefs.palettes.filter((p) => p.name !== name)].slice(0, 12); ui.paletteName = ''; save(); toast(t('paletteSaved')); renderInspector(); } },
+      h('input', { type: 'text', placeholder: t('paletteName'), 'aria-label': t('paletteName'), value: ui.paletteName, maxlength: 32, onInput: (e) => { ui.paletteName = e.target.value; } }),
+      h('button', { class: 'btn', type: 'submit' }, t('savePalette'))
+    )
+  );
+  if (prefs.palettes.length) {
+    out.push(
+      h('div', { class: 'label' }, t('savedPalettes')),
+      h('div', { class: 'pal-list' }, prefs.palettes.map((p) => h('span', { class: 'pal-chip saved' }, h('button', { type: 'button', 'aria-pressed': String(sameColours(colors, p.colors)), onClick: () => setPalette(p.colors) }, strip(p.colors), p.name), h('button', { class: 'del', type: 'button', 'aria-label': t('deletePalette', { name: p.name }), onClick: () => { prefs.palettes = prefs.palettes.filter((x) => x !== p); save(); renderInspector(); } }, icon('trash', { size: 14 })))))
+    );
+  }
+  return out;
 };
 
 const refreshTilesOnly = () => {
@@ -597,7 +830,7 @@ const openExport = () => {
 
   const run = async (type, payload) => {
     await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
-    return client.call('build', { patches: patches(), seed: state.seed, ...payload, kind: type });
+    return client.call('build', { patches: patches(), seed: state.seed, cell: state.cell || undefined, ...payload, kind: type });
   };
 
   const renderLauncher = async (area) => {
@@ -706,3 +939,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 applyCorners();
 renderAll();
 window.__studio = { state, client, prefs };
+listProjects().then((list) => {
+  state.projects = list;
+  if (state.stage === 'intake') renderMain();
+});

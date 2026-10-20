@@ -275,8 +275,9 @@ export const runHarvest = async (input, options = {}, io) => {
 
   const records = [];
   const byKey = new Map();
+  const targetOf = new Map(targets.map((t) => [t.key, t]));
   const recordOf = (r) => {
-    const rec = { key: r.key, appId: targets.find((t) => t.key === r.key).appId, status: r.status, checkedAt: now, hash: null, image: null, glyphImage: null, trace: null, tint: null, sourceTint: null, locked: false, palette: null, seed: null, shape: 'default' };
+    const rec = { key: r.key, appId: targetOf.get(r.key).appId, status: r.status, checkedAt: now, hash: null, image: null, glyphImage: null, trace: null, tint: null, sourceTint: null, locked: false, palette: null, seed: null, shape: 'default' };
     return rec;
   };
   const traceQueue = [];
@@ -293,9 +294,11 @@ export const runHarvest = async (input, options = {}, io) => {
       } catch (e) {
         r.analysisError = errText(e);
       }
-      rec.base = analysis.gradient;
-      rec.sourceTint = analysis.gradient;
-      rec.tint = analysis.gradient;
+      const catalogue = !analysis.gradient && !legacy ? targetOf.get(r.key).catalogueTint || null : null;
+      rec.base = analysis.gradient || catalogue;
+      rec.sourceTint = analysis.gradient || catalogue;
+      rec.tint = analysis.gradient || catalogue;
+      if (catalogue) rec.tintSource = 'catalogue';
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
@@ -409,7 +412,9 @@ export const runHarvest = async (input, options = {}, io) => {
         tint: rec ? rec.tint : null,
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
         trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
-        why: why.get(r.key) || null
+        why: why.get(r.key) || null,
+        ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
+        ...(targetOf.get(r.key).closed ? { closed: true } : {})
       };
     })
   };

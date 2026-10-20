@@ -1,7 +1,7 @@
-import decodeIco from 'decode-ico';
 import { GifReader } from 'omggif';
 import { decodePng, decodeJpeg, decodeWebp, decodeAvif, decodeJxl, rasterSvg, svgSize } from './codecs.js';
 import { text } from './runtime.js';
+import { decodeIcoBytes } from './ico.js';
 
 export const sniff = (buf) => {
   if (!buf || buf.length < 8) return null;
@@ -57,17 +57,7 @@ export const decodeImage = async (bytes, ext) => {
     const image = decodeGif(buf);
     return { image, srcWidth: image.width };
   }
-  if (ext === 'ico') {
-    const frames = decodeIco(buf);
-    if (!frames.length) throw new Error('empty ico');
-    const best = frames.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a));
-    if (best.type === 'png') {
-      const image = await decodePng(new Uint8Array(best.data));
-      return { image, srcWidth: best.width };
-    }
-    const image = { width: best.width, height: best.height, data: new Uint8ClampedArray(best.data) };
-    return { image, srcWidth: best.width };
-  }
+  if (ext === 'ico') return decodeIcoBytes(buf);
   if (ext === 'svg') {
     const source = text(buf);
     const probe = await svgSize(source);

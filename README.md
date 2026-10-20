@@ -75,7 +75,7 @@ Push this folder as its own repository and import it in Vercel with the default 
 
 ## Licences
 
-The traced glyphs use `esm-potrace-wasm`, which is GPL-2.0 (it wraps potrace). The built Studio bundles it, so distributing the built app means following the GPL for that bundle. `@resvg/resvg-wasm` is MPL-2.0, the `@jsquash/*` codecs are Apache-2.0, `svgo`, `fflate`, `omggif` and `decode-ico` are MIT, and Readex Pro is OFL-1.1.
+The traced glyphs use `esm-potrace-wasm`, which is GPL-2.0 (it wraps potrace). The built Studio bundles it, so distributing the built app means following the GPL for that bundle. `@resvg/resvg-wasm` is MPL-2.0, the `@jsquash/*` codecs are Apache-2.0, `svgo`, `fflate` and `omggif` are MIT, and Readex Pro is OFL-1.1.
 
 ## Opening earlier work
 

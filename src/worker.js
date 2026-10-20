@@ -97,7 +97,7 @@ const handlers = {
     const targets = p.targets.map((t) => ({ ...t }));
     const result = await runHarvest(
       { targets, overrides: {} },
-      { profile: 'launcher', seed: p.seed, mode: 'keep', cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
+      { profile: 'launcher', seed: p.seed, mode: 'keep', faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
       makeIo()
     );
     records = new Map(result.records.map((r) => [r.key, r]));

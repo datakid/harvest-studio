@@ -10,7 +10,7 @@ const studioDir = path.resolve(here, '..');
 const repoRoot = process.cwd();
 
 const parseArgs = (argv) => {
-  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null };
+  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -22,6 +22,7 @@ const parseArgs = (argv) => {
     else if (a === '--out') out.out = path.resolve(take(i++, a));
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
+    else if (a === '--fa-fallback') out.faFallback = true;
     else throw new Error('unknown flag ' + a);
   }
   if (!['launcher', 'legacy-v1'].includes(out.profile)) throw new Error('--profile must be launcher or legacy-v1');
@@ -93,7 +94,7 @@ const main = async () => {
 
   const result = await runHarvest(
     { targets, overrides },
-    { profile: args.profile, local: !!args.from, seed: args.seed },
+    { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback },
     io
   );
   const exp = result.export;

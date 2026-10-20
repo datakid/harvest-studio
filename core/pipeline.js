@@ -323,6 +323,10 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.kept = true;
     } else if (r.status === 'blocked') {
       rec.status = 'blocked';
+    } else if (options.faFallback && r.status === 'notfound' && targetOf.get(r.key).faIcon) {
+      rec.status = 'override';
+      rec.fa = targetOf.get(r.key).faIcon;
+      r.source = { type: 'fa-fallback', href: rec.fa };
     } else {
       continue;
     }
@@ -414,6 +418,7 @@ export const runHarvest = async (input, options = {}, io) => {
         trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
         why: why.get(r.key) || null,
         ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
+        ...(rec && rec.fa ? { fa: rec.fa } : {}),
         ...(targetOf.get(r.key).closed ? { closed: true } : {})
       };
     })

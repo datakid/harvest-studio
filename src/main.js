@@ -328,7 +328,7 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined }, {
+    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback }, {
       onProgress: (p) => {
         state.progress = p;
         updateProgress();
@@ -489,6 +489,7 @@ const renderIntake = () => {
         pendingChips(),
         manifestPanel(),
         state.pending.jsons.map(scanPanel),
+        state.pending.jsons.some((j) => j.scan.kind === 'launcher') ? h('label', { class: 'check', id: 'fa-fallback' }, h('input', { type: 'checkbox', checked: prefs.faFallback, onChange: (e) => { prefs.faFallback = e.target.checked; save(); } }), t('faFallback')) : null,
         state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null,
         recentsPanel()
       )

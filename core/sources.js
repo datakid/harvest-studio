@@ -94,11 +94,27 @@ const rankFields = (items, matcher, preferred) => {
 
 const isImageRef = (v) => /^data:image\//i.test(v) || (/^https?:\/\//i.test(v) && /\.(png|jpe?g|gif|webp|ico|svg|avif)(\?|#|$)/i.test(v));
 
-export const scanJson = (data, overrides = {}) => {
+export const pickLabel = (value, lang = 'en') => {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    for (const k of [lang, 'en', 'ar']) if (typeof value[k] === 'string' && value[k]) return value[k];
+    return Object.values(value).find((v) => typeof v === 'string' && v) || '';
+  }
+  return '';
+};
+
+const catalogueName = (app, variantId, lang) => {
+  const title = pickLabel(app.name ?? app.title, lang) || app.id;
+  const variant = variantId && Array.isArray(app.variants) ? app.variants.find((v) => v && v.id === variantId) : null;
+  const label = variant ? pickLabel(variant.label, lang) : '';
+  return label ? title + ' · ' + label : title;
+};
+
+export const scanJson = (data, overrides = {}, lang = 'en') => {
   if (data && Array.isArray(data.categories) && data.categories.some((c) => c && Array.isArray(c.apps))) {
-    const names = new Map();
-    for (const cat of data.categories) for (const app of (cat && cat.apps) || []) if (app && typeof app.id === 'string') names.set(app.id, app.name || app.title || app.id);
-    const targets = buildTargets(data).map((t) => ({ ...t, name: names.get(t.appId) || t.appId }));
+    const apps = new Map();
+    for (const cat of data.categories) for (const app of (cat && cat.apps) || []) if (app && typeof app.id === 'string') apps.set(app.id, app);
+    const targets = buildTargets(data).map((t) => ({ ...t, name: apps.has(t.appId) ? catalogueName(apps.get(t.appId), t.variantId, lang) : t.appId }));
     return { kind: 'launcher', label: 'launcher', count: targets.length, targets, fields: null, candidates: null };
   }
   const cols = collections(data)

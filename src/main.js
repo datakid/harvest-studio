@@ -164,6 +164,7 @@ const renderBar = () => {
           prefs.lang = getLang() === 'ar' ? 'en' : 'ar';
           setLang(prefs.lang);
           save();
+          for (const j of state.pending.jsons) rescan(j, j.scan.fields || {}, prefs.lang);
           renderAll();
         }
       },
@@ -218,8 +219,8 @@ const scanPanel = (json, index) => {
                 delete f.urlField;
                 delete f.iconField;
                 delete f.nameField;
-                rescan(json, { collection: v });
-              } else rescan(json, f);
+                rescan(json, { collection: v }, getLang());
+              } else rescan(json, f, getLang());
               renderMain();
             }
           },
@@ -299,7 +300,7 @@ const addFiles = async (files) => {
     if (BUNDLE_RE.test(f.name)) state.pending.bundle.files.set(f.name, f);
     else if (isJsonFile(f)) {
       try {
-        const j = await readJsonFile(f);
+        const j = await readJsonFile(f, getLang());
         if (looksLikeManifest(j.data)) state.pending.bundle.manifest = j;
         else state.pending.jsons.push(j);
       } catch {

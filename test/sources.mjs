@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { check, finish, studioDir } from './util.mjs';
-import { scanJson, hostKey, normalizeUrl, uniqueKeys } from '../core/sources.js';
+import { scanJson, hostKey, normalizeUrl, uniqueKeys, pickLabel } from '../core/sources.js';
 import { readLinks, readBaseHref } from '../core/discover.js';
 
 const links = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.json'), 'utf8'));
@@ -77,6 +77,28 @@ await check('icon links keep a > inside a quoted attribute, as inline SVG favico
 await check('icon links ignore commented-out and script-embedded tags', () => {
   const found = readLinks('<!-- <link rel="icon" href="/old.png"> --><script>var s = \'<link rel="icon" href="/js.png">\';</script><link rel=icon href=/real.png>');
   assert.deepEqual(found.map((l) => l.href), ['/real.png']);
+});
+
+await check('pickLabel handles strings, locale objects and gaps', () => {
+  assert.equal(pickLabel('Plain'), 'Plain');
+  assert.equal(pickLabel({ ar: 'أ', en: 'A' }, 'ar'), 'أ');
+  assert.equal(pickLabel({ ar: 'أ', en: 'A' }, 'fr'), 'A');
+  assert.equal(pickLabel({ ar: 'أ' }, 'en'), 'أ');
+  assert.equal(pickLabel({ de: 'D' }, 'en'), 'D');
+  assert.equal(pickLabel(null), '');
+  assert.equal(pickLabel({ en: '' }), '');
+});
+
+await check('catalogue names are plain text: app title plus variant label', () => {
+  const en = scanJson(links, {}, 'en').targets;
+  assert.ok(en.every((t) => typeof t.name === 'string' && !/object/i.test(t.name)));
+  const byKey = Object.fromEntries(en.map((t) => [t.key, t.name]));
+  assert.equal(byKey.protocols, 'Protocols');
+  assert.equal(byKey['paid-calculator--daleel'], 'Paid · Daleel 460');
+  assert.equal(byKey['ledger-form--tally'], 'Form · Tally');
+  const ar = Object.fromEntries(scanJson(links, {}, 'ar').targets.map((t) => [t.key, t.name]));
+  assert.equal(ar.protocols, 'بروتوكولات الصرف');
+  assert.equal(ar['paid-calculator--daleel'], 'المنفذ والتحمل · دليل 460');
 });
 
 finish();

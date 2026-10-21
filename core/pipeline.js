@@ -46,7 +46,7 @@ const finishFrom = async (bytes, source, result) => {
 
 export const processTarget = async (t, ctx) => {
   const { io, overrides = {}, local = false } = ctx;
-  const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false };
+  const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
   if (!KEY_RE.test(t.key)) {
     result.error = 'key is not safe for a file name';
     return result;
@@ -110,26 +110,30 @@ export const processTarget = async (t, ctx) => {
     if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge') {
       result.status = 'blocked';
       result.error = 'HTTP ' + res.status + ' challenge or protection page';
+      result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
       return result;
     }
     html = text(res.bytes);
   } catch (e) {
     errors.push('page: ' + errText(e));
+    result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
   }
   base = readBaseHref(html, base);
   const links = readLinks(html);
   if (html && !links.length && CHALLENGE_RE.test(html)) {
     result.status = 'blocked';
     result.error = 'challenge page without icon links';
+    result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
     return result;
   }
-  const fetchIo = { fetchBytes: (u) => fetchRetry(io, u) };
+  const fetchIo = { fetchBytes: (u) => fetchRetry(io, u), attempt: (a) => result.attempts.push(a) };
   let lastBad = null;
   const tried = new Set();
   for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html))) {
     for (const c of await group()) {
       if (tried.has(c.href)) continue;
       tried.add(c.href);
+      const at = { type: c.type, href: short(c.href) };
       try {
         const bytes = await loadHref(c.href, fetchIo);
         if (!bytes || !bytes.length) throw new Error('empty');
@@ -139,17 +143,20 @@ export const processTarget = async (t, ctx) => {
         if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
         if (bad) {
-          lastBad = { bad, source: { type: c.type, href: short(c.href) } };
+          lastBad = { bad, source: at };
           errors.push(c.type + ': ' + bad);
+          result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
-        result.source = { type: c.type, href: short(c.href) };
+        result.attempts.push({ ...at, status: 'used', reason: null });
+        result.source = at;
         result.image = img;
         result.original = original;
         result.status = 'found';
         return result;
       } catch (e) {
         errors.push(c.type + ': ' + errText(e));
+        result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
       }
     }
   }
@@ -426,6 +433,7 @@ export const runHarvest = async (input, options = {}, io) => {
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
         trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
         why: why.get(r.key) || null,
+        ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),
         ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
         ...(rec && rec.fa ? { fa: rec.fa } : {}),
         ...(targetOf.get(r.key).closed ? { closed: true } : {})

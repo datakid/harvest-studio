@@ -164,6 +164,12 @@ await check('a single site address is harvested through the proxy', async () => 
   assert.equal(await single.locator('.gallery .cell').count(), 1);
   assert.ok(await single.getByText('Found').count());
   assert.ok(await single.getByText(/png http/).count());
+  await single.locator('.gallery .cell').first().click();
+  const tried = single.locator('.inspector details.attempts');
+  assert.equal(await tried.count(), 1);
+  await tried.locator('summary').click();
+  const row = await tried.locator('li').first().innerText();
+  assert.ok(/used/.test(row) && /png/.test(row) && /demo\.example\.com\/icon\.png/.test(row), row);
   await single.getByRole('button', { name: 'Export' }).click();
   await single.getByRole('radio', { name: 'Favicon pack' }).click();
   const [dl] = await Promise.all([single.waitForEvent('download'), single.getByRole('button', { name: 'Download .zip' }).click()]);

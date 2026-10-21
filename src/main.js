@@ -96,7 +96,7 @@ const snapshot = () => ({
   cell: state.cell,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
-  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null })),
+  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
   records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
 });
 
@@ -773,10 +773,27 @@ const selectedPanel = () => {
       h('dd', null, glyphLabel),
       h('dt', null, t('source')),
       h('dd', null, rec.faviconUrl ? h('span', { class: 'favicon-chip', style: { display: 'inline-grid', 'vertical-align': 'middle', 'margin-inline-end': '8px' } }, h('img', { src: rec.faviconUrl, alt: '' })) : null, src)
-    )
+    ),
+    attemptsList(item.attempts)
   );
   return panel;
 };
+
+const attemptsList = (attempts) =>
+  attempts && attempts.length
+    ? h(
+        'details',
+        { class: 'attempts' },
+        h('summary', null, t('attempts', { n: attempts.length })),
+        h(
+          'ol',
+          null,
+          ...attempts.map((a) =>
+            h('li', null, h('span', { class: 'pill' + (a.status === 'used' ? ' ok' : ' warn') }, t('attempt' + a.status[0].toUpperCase() + a.status.slice(1))), ' ', h('b', null, a.type), ' ', h('span', { class: 'href', dir: 'ltr' }, a.href), a.reason ? h('span', { class: 'why' }, ' ' + a.reason) : null)
+          )
+        )
+      )
+    : null;
 
 const renderInspector = () => {
   const el = document.getElementById('inspector');
@@ -793,7 +810,7 @@ const replaceImage = async (rec, file) => {
     const fresh = decodeRecord(payload, { name: rec.name });
     fresh.name = rec.name;
     state.records.set(rec.key, fresh);
-    state.items.set(rec.key, { ...(state.items.get(rec.key) || {}), source: { type: 'file', href: file.name }, error: null, name: rec.name });
+    state.items.set(rec.key, { ...(state.items.get(rec.key) || {}), source: { type: 'file', href: file.name }, error: null, attempts: [], name: rec.name });
     state.dirty = true;
     applyColours();
     renderMain();

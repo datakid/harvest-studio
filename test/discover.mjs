@@ -104,4 +104,32 @@ await check('an image reachable through two groups is fetched once', async () =>
   assert.equal(calls.filter((u) => u === SITE + 'same.png').length, 1);
 });
 
+await check('the report lists every attempt in order with its status and reason', async () => {
+  const html = page('<link rel="apple-touch-icon" href="/gone.png"><link rel="icon" href="/text.png"><link rel="icon" type="image/x-icon" href="/ok.png">');
+  const { item } = await harvest({ [SITE]: html, [SITE + 'text.png']: 'not an image at all', [SITE + 'ok.png']: squarePng });
+  assert.deepEqual(item.attempts.map((a) => [a.type, a.status]), [['apple-touch-icon', 'failed'], ['png', 'failed'], ['ico', 'used']]);
+  assert.equal(item.attempts[0].reason, 'HTTP 404');
+  assert.equal(item.attempts[1].reason, 'not an image');
+  assert.equal(item.attempts[1].href, SITE + 'text.png');
+  assert.equal(item.attempts[2].reason, null);
+});
+
+await check('a rejected icon and a failed manifest are both recorded', async () => {
+  const flat = { width: 64, height: 64, data: new Uint8ClampedArray(64 * 64 * 4).fill(255) };
+  const { item } = await harvest({ [SITE]: page('<link rel="icon" href="/flat.png"><link rel="manifest" href="/site.webmanifest">'), [SITE + 'flat.png']: await encodePng(flat, { optimise: false }) });
+  assert.equal(item.status, 'notfound');
+  const byType = Object.fromEntries(item.attempts.map((a) => [a.type, a]));
+  assert.equal(byType.png.status, 'rejected');
+  assert.equal(byType.png.reason, 'single flat colour');
+  assert.equal(byType.manifest.status, 'failed');
+  assert.equal(byType.manifest.reason, 'HTTP 404');
+});
+
+await check('a blocked page records one page attempt', async () => {
+  const calls = [];
+  const blocked = { ...io({}, calls), fetchBytes: async (url) => ({ ok: false, status: 403, url, bytes: new Uint8Array(), mitigated: null }) };
+  const r = await runHarvest({ targets: target, overrides: {} }, { profile: 'launcher', now: NOW }, blocked);
+  assert.deepEqual(r.report.items[0].attempts, [{ type: 'page', href: SITE, status: 'blocked', reason: 'HTTP 403 challenge or protection page' }]);
+});
+
 finish();

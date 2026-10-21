@@ -135,6 +135,7 @@ export const candidateGroups = (links, base, errors, io, metas = {}) => {
       return make('manifest', icons.map((i) => ({ href: i.src })), mbase);
     } catch (e) {
       errors.push('manifest: ' + errText(e));
+      if (io.attempt) io.attempt({ type: 'manifest', href: href.startsWith('data:') ? href.slice(0, 60) : href, status: 'failed', reason: errText(e) });
       return [];
     }
   };

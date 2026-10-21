@@ -103,6 +103,16 @@ await check('the fallback never covers a blocked page', async () => {
   assert.equal(r.report.items[0].fa, undefined);
 });
 
+await check('a Netlify password prompt answering 401 is reported as blocked, with its favicon link ignored', async () => {
+  const prompt = '<!DOCTYPE html><html><head><title>Password protected</title><link rel="icon" href="/netlify.ico"></head><body></body></html>';
+  const netlify = siteIo({}, {
+    fetchBytes: async (url) => ({ ok: false, status: 401, url, bytes: new TextEncoder().encode(prompt), mitigated: null })
+  });
+  const r = await faRun({ faFallback: true }, netlify);
+  assert.equal(r.report.items[0].status, 'blocked');
+  assert.equal(r.report.items[0].fa, undefined);
+});
+
 await check('the fallback does not replace an entry kept from the previous manifest', async () => {
   const first = await runHarvest({ targets: only('protocols'), overrides: {} }, { profile: 'launcher', mode: 'follow', now: NOW }, protocolsIo());
   const files = first.export.files;

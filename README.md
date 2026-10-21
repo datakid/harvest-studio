@@ -46,6 +46,14 @@ When the input is a launcher catalogue, each app's own data is used where a favi
 
 `test/sample-output/` holds the Launcher profile run on the 33 current icons, for checking the launcher against real output.
 
+## Where icons are looked for
+
+For each site the page head is read and icons are tried in this order, stopping at the first usable one: `apple-touch-icon`, SVG icon links, PNG icon links, web manifest icons, `.ico` icon links, `/favicon.ico`, then `rel="mask-icon"` (a one-colour SVG), the `msapplication-TileImage` meta tag, a set of well-known paths and finally `og:image`. The report names the winner in `source.type` (`mask-icon`, `tile-image`, `well-known`, `og-image`).
+
+- The well-known paths (`/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png`, `/favicon.svg`, `/favicon.png`, `/icon.png`, `/icon.svg`, `/logo192.png`) are tried only when the page declares no icon link at all. Each one is an extra request, so a page with no icon costs up to seven more.
+- `og:image` is a last resort and is used only when it is square within 10%; share cards are usually wide and are skipped with the reason `not square`.
+- An address reached by two routes is fetched once.
+
 ## Colours
 
 The default mode, **Follow**, keeps every icon on its own favicon colour. Only look-alikes (colours within a small distance) are varied, inside their own colour (hue about ±10°, lightness ±0.06, chroma ±8%), seeded per icon so the result is the same every run. **One colour** paints everything with a colour you pick, optionally varied. **Family** is the old harvest behaviour, which spreads look-alikes further. **Original** leaves the favicon colours alone. Any icon can be given its own colour and kept.

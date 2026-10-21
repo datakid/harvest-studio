@@ -173,7 +173,7 @@ export const normalize = async (bytes, ext) => {
   let img = await resizeTo(decoded.image, 192, 192);
   if (opaque) img = await matteCorners(img);
   const original = decoded.image.width <= 1024 && decoded.image.height <= 1024 ? decoded.image : null;
-  return { img, srcWidth: decoded.srcWidth, original };
+  return { img, srcWidth: decoded.srcWidth, original, ratio: decoded.image.width / decoded.image.height };
 };
 
 export const gate = (img, srcWidth) => {

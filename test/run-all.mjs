@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let failed = 0;
-for (const file of ['launcher.mjs', 'proxy.mjs', 'sources.mjs', 'ico.mjs', 'catalogue.mjs', 'head.mjs', 'only.mjs', 'ui.mjs', 'features.mjs']) {
+for (const file of ['launcher.mjs', 'proxy.mjs', 'sources.mjs', 'ico.mjs', 'catalogue.mjs', 'head.mjs', 'only.mjs', 'discover.mjs', 'ui.mjs', 'features.mjs']) {
   console.log('== ' + file);
   const r = spawnSync(process.execPath, [path.join(here, file)], { stdio: 'inherit' });
   if (r.status !== 0) failed++;

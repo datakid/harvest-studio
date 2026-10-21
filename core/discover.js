@@ -83,6 +83,19 @@ export const readLinks = (html) => {
   return links;
 };
 
+export const readMetas = (html) => {
+  const clean = String(html).replace(/<!--[\s\S]*?-->/g, '').replace(/<(script|style|template|noscript)\b[\s\S]*?<\/\1\s*>/gi, '');
+  const metas = {};
+  const re = /<meta\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+  let m;
+  while ((m = re.exec(clean))) {
+    const a = parseAttrs(m[1]);
+    const key = (a.name || a.property || '').toLowerCase();
+    if (key && a.content && a.content.trim() && !(key in metas)) metas[key] = a.content.trim();
+  }
+  return metas;
+};
+
 export const readBaseHref = (html, pageUrl) => {
   const m = /<base\b((?:[^>"']|"[^"]*"|'[^']*')*)>/i.exec(String(html).replace(/<!--[\s\S]*?-->/g, ''));
   if (!m) return pageUrl;
@@ -90,7 +103,9 @@ export const readBaseHref = (html, pageUrl) => {
   return a.href ? resolveHref(a.href, pageUrl) || pageUrl : pageUrl;
 };
 
-export const candidateGroups = (links, base, errors, io) => {
+export const WELL_KNOWN = ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/favicon.svg', '/favicon.png', '/icon.png', '/icon.svg', '/logo192.png'];
+
+export const candidateGroups = (links, base, errors, io, metas = {}) => {
   const make = (type, list, from = base) =>
     list
       .map((l) => ({ type, href: resolveHref(l.href, from) }))
@@ -132,7 +147,30 @@ export const candidateGroups = (links, base, errors, io) => {
     }
   };
 
-  return [async () => make('apple-touch-icon', apple), async () => make('svg', svg), async () => make('png', png), manifest, async () => make('ico', ico), fallback];
+  const maskIcons = links.filter((l) => l.rel.includes('mask-icon'));
+  const tile = async () => (metas['msapplication-tileimage'] ? make('tile-image', [{ href: metas['msapplication-tileimage'] }]) : []);
+  const wellKnown = async () => {
+    if (iconLinks.length || apple.length) return [];
+    try {
+      return make('well-known', WELL_KNOWN.map((p) => ({ href: new URL(p, base).href })));
+    } catch {
+      return [];
+    }
+  };
+  const og = async () => (metas['og:image'] ? make('og-image', [{ href: metas['og:image'] }]).map((c) => ({ ...c, square: true })) : []);
+
+  return [
+    async () => make('apple-touch-icon', apple),
+    async () => make('svg', svg),
+    async () => make('png', png),
+    manifest,
+    async () => make('ico', ico),
+    fallback,
+    async () => make('mask-icon', maskIcons),
+    tile,
+    wellKnown,
+    og
+  ];
 };
 
 export const loadHref = async (href, io) => {

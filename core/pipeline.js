@@ -4,7 +4,7 @@ import { normalize, gate } from './pixels.js';
 import { imageToLab, extractGradient, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph } from './glyph.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
-import { readLinks, readBaseHref, candidateGroups, loadHref } from './discover.js';
+import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
 import { applyMode, guardContrast, separateTints, MIN_TINT_SEP, DEFAULT_SEED } from './tints.js';
 import { unpackAtlas, DEFAULT_CELL } from './atlas.js';
 import { buildLauncherExport, buildLegacyExport, stableStringify } from './profiles.js';
@@ -125,14 +125,18 @@ export const processTarget = async (t, ctx) => {
   }
   const fetchIo = { fetchBytes: (u) => fetchRetry(io, u) };
   let lastBad = null;
-  for (const group of candidateGroups(links, base, errors, fetchIo)) {
+  const tried = new Set();
+  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html))) {
     for (const c of await group()) {
+      if (tried.has(c.href)) continue;
+      tried.add(c.href);
       try {
         const bytes = await loadHref(c.href, fetchIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
         if (!ext) throw new Error('not an image');
-        const { img, srcWidth, original } = await normalize(bytes, ext);
+        const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
+        if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
         if (bad) {
           lastBad = { bad, source: { type: c.type, href: short(c.href) } };

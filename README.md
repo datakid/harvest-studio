@@ -50,6 +50,10 @@ The default mode, **Follow**, keeps every icon on its own favicon colour. Only l
 
 The contrast guardrail checks the launcher's vivid tile (white glyph on the clamped tint) in light and dark. Tints that fail are darkened by up to 0.12 lightness; locked or manual tints are flagged instead of changed. A tint that still fails blocks the Launcher export.
 
+## Pages are read only up to the head
+
+The CLI, the Studio and the proxy read a page only until its closing `</head>`, or its first 256 KiB if there is none, so pages that inline a lot of content (Protocols is about 412 KB) are no problem. The Studio asks the proxy for this with `mode=head`; it applies to `text/html` only, and images and JSON keep the full 512 KiB limit.
+
 ## Fetch proxy
 
 Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches pages and icons for the app. It only answers requests that carry the `x-studio-token` header matching the `STUDIO_TOKEN` environment variable, and it:
@@ -57,7 +61,7 @@ Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches p
 - accepts only http and https on ports 80, 443, 8080 and 8443, with no credentials in the URL
 - resolves the host and refuses any private, loopback, link-local, multicast or reserved address (IPv4 and IPv6), then connects to the address it checked, so a changing DNS answer cannot redirect it
 - follows at most three redirects and checks every hop the same way
-- cuts the response at 512 KiB and the request at 8 seconds
+- cuts the response at 512 KiB (an HTML page requested with `mode=head` stops at its closing head tag or 256 KiB) and the request at 8 seconds
 - passes only pages, images, JSON and manifests
 - returns the upstream status in `x-upstream-status`
 

@@ -8,7 +8,7 @@ const publicResolve = async () => [{ address: '93.184.216.34', family: 4 }];
 
 const body = (text, status = 200, type = 'text/html', extra = {}) => ({ status, headers: { 'content-type': type, ...extra }, body: Readable.from([Buffer.from(text)]), destroy() {} });
 
-const call = async (handler, { url, token = TOKEN, method = 'GET' } = {}) => {
+const call = async (handler, { url, token = TOKEN, method = 'GET', mode = '' } = {}) => {
   const headers = {};
   let status = 0;
   let out = Buffer.alloc(0);
@@ -20,7 +20,7 @@ const call = async (handler, { url, token = TOKEN, method = 'GET' } = {}) => {
       out = Buffer.from(b || '');
     }
   };
-  await handler({ method, url: '/api/fetch?url=' + encodeURIComponent(url || ''), headers: token === null ? {} : { 'x-studio-token': token } }, res);
+  await handler({ method, url: '/api/fetch?url=' + encodeURIComponent(url || '') + (mode ? '&mode=' + mode : ''), headers: token === null ? {} : { 'x-studio-token': token } }, res);
   return { status, headers, text: out.toString('utf8') };
 };
 
@@ -139,6 +139,69 @@ await check('only GET and OPTIONS are allowed and CORS is set', async () => {
   assert.equal(pre.status, 204);
   assert.equal(pre.headers['access-control-allow-origin'], '*');
   assert.ok(pre.headers['access-control-allow-headers'].includes('x-studio-token'));
+});
+
+const streamed = (chunks, type = 'text/html') => {
+  const state = { pulled: 0, destroyed: false };
+  const stream = Readable.from(
+    (async function* () {
+      for (const c of chunks) {
+        state.pulled++;
+        yield Buffer.from(c);
+      }
+    })()
+  );
+  return { state, upstream: { status: 200, headers: { 'content-type': type }, body: stream, destroy() { state.destroyed = true; stream.destroy(); } } };
+};
+
+const bigPage = '<html><head><title>x</title><link rel="icon" href="favicon.ico"></head><body>' + 'x'.repeat(600 * 1024) + '</body></html>';
+
+await check('mode=head returns a page up to its closing head tag where a plain request would be refused', async () => {
+  const h = make(async () => body(bigPage));
+  assert.equal((await call(h, { url: 'https://example.com/' })).status, 413);
+  const r = await call(h, { url: 'https://example.com/', mode: 'head' });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers['x-upstream-truncated'], 'head');
+  assert.ok(r.text.includes('</head>'));
+  assert.ok(r.text.length <= 256 * 1024);
+});
+
+await check('mode=head stops reading the upstream once the head is complete', async () => {
+  const chunks = ['<html><head><link rel="icon" href="/i.ico"></he', 'ad><body>', ...Array.from({ length: 40 }, () => 'y'.repeat(16 * 1024))];
+  const { state, upstream } = streamed(chunks);
+  const r = await call(make(async () => upstream), { url: 'https://example.com/', mode: 'head' });
+  assert.equal(r.status, 200);
+  assert.equal(state.destroyed, true);
+  assert.ok(state.pulled < 6, 'pulled ' + state.pulled);
+});
+
+await check('mode=head without a closing head tag stops at 256 KiB', async () => {
+  const { upstream } = streamed(Array.from({ length: 40 }, () => 'z'.repeat(16 * 1024)));
+  const r = await call(make(async () => upstream), { url: 'https://example.com/', mode: 'head' });
+  assert.equal(r.status, 200);
+  assert.equal(r.text.length, 256 * 1024);
+});
+
+await check('mode=head leaves a small page whole and does not mark it truncated', async () => {
+  const r = await call(make(async () => body('<html><body>no head tag</body></html>')), { url: 'https://example.com/', mode: 'head' });
+  assert.equal(r.status, 200);
+  assert.equal(r.headers['x-upstream-truncated'], undefined);
+  assert.ok(r.text.includes('no head tag'));
+});
+
+await check('images and other types keep the full size limit under mode=head', async () => {
+  const big = 'i'.repeat(600 * 1024);
+  const r = await call(make(async () => body(big, 200, 'image/png')), { url: 'https://example.com/a.png', mode: 'head' });
+  assert.equal(r.status, 413);
+  const j = await call(make(async () => body(big, 200, 'application/json')), { url: 'https://example.com/a.json', mode: 'head' });
+  assert.equal(j.status, 413);
+});
+
+await check('mode=head does not loosen the token or content-type checks', async () => {
+  const h = make(async () => body(bigPage));
+  assert.equal((await call(h, { url: 'https://example.com/', mode: 'head', token: 'nope' })).status, 401);
+  const pdf = make(async () => body('x', 200, 'application/pdf'));
+  assert.equal((await call(pdf, { url: 'https://example.com/', mode: 'head' })).status, 415);
 });
 
 finish();

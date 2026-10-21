@@ -17,11 +17,11 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
-export const fetchRetry = async (io, url) => {
+export const fetchRetry = async (io, url, options) => {
   let last;
   for (let i = 0; i < 3; i++) {
     try {
-      return await io.fetchBytes(url);
+      return await io.fetchBytes(url, options);
     } catch (e) {
       last = e;
       if (e && e.fatal) throw e;
@@ -105,7 +105,7 @@ export const processTarget = async (t, ctx) => {
   let html = '';
   let base = t.url;
   try {
-    const res = await fetchRetry(io, t.url);
+    const res = await fetchRetry(io, t.url, { head: true });
     base = res.url || t.url;
     if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge') {
       result.status = 'blocked';

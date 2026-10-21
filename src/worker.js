@@ -12,6 +12,7 @@ import {
   buildCustomExport,
   buildFaviconPack,
   zipFiles,
+  readHead,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
@@ -29,7 +30,7 @@ let records = new Map();
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
-  fetchBytes: async (url) => {
+  fetchBytes: async (url, options = {}) => {
     if (!settings.proxyUrl) {
       let res;
       try {
@@ -39,9 +40,10 @@ const makeIo = () => ({
         e.fatal = true;
         throw e;
       }
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: null };
+      const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null };
     }
-    const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url);
+    const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
     const res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {} });
     if (res.status === 401) {
       const e = new Error('the proxy rejected the access token');

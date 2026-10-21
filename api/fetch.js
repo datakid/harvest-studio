@@ -3,6 +3,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import crypto from 'node:crypto';
+import { headScanner, HEAD_LIMIT } from '../core/head.js';
 
 export const LIMITS = Object.freeze({ maxBytes: 512 * 1024, timeoutMs: 8000, maxRedirects: 3, ports: [80, 443, 8080, 8443] });
 const ALLOWED_TYPES = [/^text\/html\b/i, /^application\/xhtml\+xml\b/i, /^image\//i, /^application\/json\b/i, /^application\/manifest\+json\b/i, /^application\/octet-stream\b/i, /^text\/plain\b/i];
@@ -151,6 +152,28 @@ export const fetchUpstream = async (rawUrl, { resolve = defaultResolve, request 
   throw new ProxyError(502, 'too many redirects');
 };
 
+const readHeadCapped = async (res, timeoutMs) => {
+  const seen = headScanner();
+  const chunks = [];
+  let size = 0;
+  let cut = false;
+  const deadline = Date.now() + timeoutMs;
+  for await (const chunk of res.body) {
+    chunks.push(Buffer.from(chunk));
+    size += chunk.length;
+    if (seen(chunk) || size >= HEAD_LIMIT) {
+      cut = true;
+      if (res.destroy) res.destroy();
+      break;
+    }
+    if (Date.now() > deadline) {
+      if (res.destroy) res.destroy();
+      throw new ProxyError(504, 'upstream timed out');
+    }
+  }
+  return { body: Buffer.concat(chunks).subarray(0, HEAD_LIMIT), cut };
+};
+
 const readCapped = async (res, maxBytes, timeoutMs) => {
   const chunks = [];
   let size = 0;
@@ -180,7 +203,7 @@ const cors = (res, env) => {
   res.setHeader('access-control-allow-origin', env.STUDIO_ORIGIN || '*');
   res.setHeader('access-control-allow-headers', 'x-studio-token');
   res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
-  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-vercel-mitigated, content-type');
+  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-vercel-mitigated, content-type');
   res.setHeader('vary', 'origin');
   res.setHeader('cache-control', 'no-store');
 };
@@ -199,7 +222,8 @@ export const createHandler = ({ resolve = defaultResolve, request = defaultReque
       if (!env.STUDIO_TOKEN) throw new ProxyError(500, 'the proxy has no STUDIO_TOKEN configured');
       const header = req.headers['x-studio-token'];
       if (!sameToken(header, env.STUDIO_TOKEN)) throw new ProxyError(401, 'missing or wrong access token');
-      const target = new URL(req.url, 'http://local').searchParams.get('url');
+      const params = new URL(req.url, 'http://local').searchParams;
+      const target = params.get('url');
       if (!target) throw new ProxyError(400, 'url is required');
       const { res: up, url } = await fetchUpstream(target, { resolve, request, limits });
       const type = String(up.headers['content-type'] || '');
@@ -207,7 +231,10 @@ export const createHandler = ({ resolve = defaultResolve, request = defaultReque
         if (up.destroy) up.destroy();
         throw new ProxyError(415, 'content type ' + type.split(';')[0] + ' is not allowed');
       }
-      const body = await readCapped(up, limits.maxBytes, limits.timeoutMs);
+      const wantHead = params.get('mode') === 'head' && /^(text\/html|application\/xhtml\+xml)/i.test(type);
+      const read = wantHead ? await readHeadCapped(up, limits.timeoutMs) : { body: await readCapped(up, limits.maxBytes, limits.timeoutMs), cut: false };
+      const body = read.body;
+      if (read.cut) res.setHeader('x-upstream-truncated', 'head');
       res.setHeader('x-upstream-status', String(up.status));
       res.setHeader('x-upstream-url', url.href);
       if (up.headers['x-vercel-mitigated']) res.setHeader('x-vercel-mitigated', String(up.headers['x-vercel-mitigated']));

@@ -267,8 +267,9 @@ export const runHarvest = async (input, options = {}, io) => {
   const local = !!options.local;
 
   let done = 0;
+  const only = options.only ? new Set(options.only) : null;
   const results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
-    const r = await processTarget(t, { io, overrides, local });
+    const r = only && !only.has(t.key) ? { key: t.key, url: t.url, status: 'skipped' } : await processTarget(t, { io, overrides, local });
     progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status });
     return r;
   });
@@ -318,9 +319,12 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.sourceTint = prev.sourceTint;
       rec.locked = prev.locked;
       rec.palette = prev.palette;
+      rec.seed = prev.seed;
       rec.shape = prev.shape || 'default';
-      rec.status = r.status === 'blocked' ? 'blocked' : 'stale';
+      rec.status = r.status === 'skipped' ? prev.status : r.status === 'blocked' ? 'blocked' : 'stale';
       rec.kept = true;
+    } else if (r.status === 'skipped') {
+      continue;
     } else if (r.status === 'blocked') {
       rec.status = 'blocked';
     } else if (options.faFallback && r.status === 'notfound' && targetOf.get(r.key).faIcon) {
@@ -396,7 +400,8 @@ export const runHarvest = async (input, options = {}, io) => {
       stale: count('stale'),
       blocked: count('blocked'),
       default: count('default'),
-      notfound: results.filter((r) => !byKey.has(r.key)).length
+      notfound: results.filter((r) => !byKey.has(r.key) && r.status !== 'skipped').length,
+      ...(only ? { skipped: results.filter((r) => r.status === 'skipped').length } : {})
     },
     colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },

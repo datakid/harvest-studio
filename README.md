@@ -25,7 +25,7 @@ node path/to/harvest-studio/cli/harvest.mjs --profile launcher
 
 The CLI works relative to the folder you run it in: it reads `./links.json` and writes `./icons/` unless you pass `--links` and `--out`.
 
-Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`.
+Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`, `--only <key>[,<key>...]`.
 
 - Exit 0 on success, even when some keys are `stale`. Exit 1 when the budget gate blocks the export or `links.json` is invalid.
 - Without `--seed` the CLI reuses the seed from the existing `manifest.v2.json`, or `1f2e3d4c`.
@@ -38,6 +38,8 @@ Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--profile
 When the input is a launcher catalogue, each app's own data is used where a favicon falls short:
 
 - **Colour:** a favicon with no usable colour (black, white or grey) takes the app's `gradient` (or `color`) from the catalogue. The report marks it `tintSource: "catalogue"`. A kept (`locked`) tint still wins, and the contrast guard still runs on it.
+- **Re-harvesting a few keys:** `--only key1,key2` fetches only those keys. Every other key keeps its entry, image and tint from the existing `manifest.v2.json` and atlas, so the manifest hash does not move when nothing changed. Unknown keys stop the run. Without an earlier manifest the other keys are left out and a warning says so.
+- **Blocked sites:** a page answering 401, 403 or 429, or carrying a Vercel or Cloudflare challenge, is reported `blocked`. Netlify documents 401 for password-protected sites and a `Netlify-Site-Protection-Expires-In` header for single sign-on; it documents no markers in the prompt page, so none are matched.
 - **Missing favicons:** with `--fa-fallback` (CLI) or the "Use the catalogue icon when no favicon is found" switch in the Studio, a key that ends `notfound` and has no earlier entry to keep is marked `override` and the report names its FontAwesome icon in `fa`. Blocked keys are never converted; they stay `blocked` so you can act on them. It is off by default.
 - **Names:** titles and variant labels given as `{ "ar": …, "en": … }` are shown as plain text, the app title plus the variant label (for example "Paid · Daleel 460"). The Studio uses its own language, the CLI uses English.
 - **Closed apps:** `closed: true` is copied to the report item. The launcher output is not changed.

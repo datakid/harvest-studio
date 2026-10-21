@@ -10,7 +10,7 @@ const studioDir = path.resolve(here, '..');
 const repoRoot = process.cwd();
 
 const parseArgs = (argv) => {
-  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false };
+  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -23,6 +23,7 @@ const parseArgs = (argv) => {
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
     else if (a === '--fa-fallback') out.faFallback = true;
+    else if (a === '--only') out.only = take(i++, a).split(',').map((k) => k.trim()).filter(Boolean);
     else throw new Error('unknown flag ' + a);
   }
   if (!['launcher', 'legacy-v1'].includes(out.profile)) throw new Error('--profile must be launcher or legacy-v1');
@@ -60,6 +61,14 @@ const main = async () => {
   const overrides = await readJson(overridesPath, {});
   const extras = extrasToTargets(await readJson(extrasPath, {}));
   const targets = mergeTargets(buildTargets(catalog), extras);
+  if (args.only) {
+    const known = new Set(targets.map((t) => t.key));
+    const unknown = args.only.filter((k) => !known.has(k));
+    if (!args.only.length || unknown.length) {
+      console.error(args.only.length ? '--only has unknown keys: ' + unknown.join(', ') : '--only needs at least one key');
+      return 1;
+    }
+  }
 
   await fs.mkdir(args.out, { recursive: true });
   const io = {
@@ -95,7 +104,7 @@ const main = async () => {
 
   const result = await runHarvest(
     { targets, overrides },
-    { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback },
+    { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only },
     io
   );
   const exp = result.export;
@@ -123,6 +132,10 @@ const main = async () => {
   for (const item of result.report.items) {
     const how = item.source ? item.source.type + ' ' + item.source.href : '-';
     console.log(item.status.padEnd(9) + item.key.padEnd(30) + how + (item.why ? '  ' + item.why.join(',') : '') + (item.error ? '  ' + item.error : ''));
+  }
+  if (args.only) {
+    const lost = result.report.items.filter((i) => !args.only.includes(i.key) && i.status === 'notfound').map((i) => i.key);
+    if (lost.length) console.error('warning: ' + lost.length + ' other keys have no entry in the existing manifest and are left out');
   }
   console.log('');
   console.log(JSON.stringify(result.report.summary));

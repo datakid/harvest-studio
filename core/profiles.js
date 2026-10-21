@@ -4,7 +4,7 @@ import { packAtlas, encodeAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
 import { symbolMarkup, SYMBOL_MAX_BYTES } from './glyph.js';
 import { resizeTo } from './pixels.js';
 import { encodePng, resizeStretch } from './codecs.js';
-import { encodeImage, EXTENSIONS } from './encode.js';
+import { encodeImage, encodeIcoFrames, EXTENSIONS } from './encode.js';
 import { passesContrast } from './color.js';
 
 export const SPRITE_GZIP_LIMIT = 40960;
@@ -191,7 +191,7 @@ export const buildFaviconPack = async (record, { name = 'App', background = '#ff
   const source = record.original || record.image;
   const files = {};
   const sized = async (size) => resizeTo(source, size, size);
-  files['favicon.ico'] = await encodeImage(await sized(48), { format: 'ico' });
+  files['favicon.ico'] = await encodeIcoFrames([await sized(16), await sized(32), await sized(48)]);
   files['icon-192.png'] = await encodePng(await sized(192));
   files['icon-512.png'] = await encodePng(await sized(512));
   files['apple-touch-icon.png'] = await encodePng(flattenOn(await sized(180), background));

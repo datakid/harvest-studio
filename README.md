@@ -53,6 +53,7 @@ For each site the page head is read and icons are tried in this order, stopping 
 - The well-known paths (`/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png`, `/favicon.svg`, `/favicon.png`, `/icon.png`, `/icon.svg`, `/logo192.png`) are tried only when the page declares no icon link at all. Each one is an extra request, so a page with no icon costs up to seven more.
 - `og:image` is a last resort and is used only when it is square within 10%; share cards are usually wide and are skipped with the reason `not square`.
 - An address reached by two routes is fetched once.
+- **Favicon pack:** `favicon.ico` holds three PNG frames at 16, 32 and 48 pixels, each scaled from the full-size original. A custom `.ico` export never adds frames larger than its source (a 32 px source gives 16 and 32).
 - The font for SVG text is loaded only when an SVG contains `<text>`. It is `fonts/readex-pro-text.ttf` in the build (100 KB, from `@expo-google-fonts/readex-pro`, because the renderer cannot read the Studio's woff2 files); the built site grew by 100,285 bytes and `worker.js` by 461 bytes.
 - Every try is kept in the report as `attempts`, in order: `{ type, href, status, reason }` with status `used`, `failed`, `rejected` (decoded but unusable, for example a single flat colour) or `blocked`. `error` stays the short summary. The Studio shows the list under "Everything tried" in the item panel, and saves it with the project.
 

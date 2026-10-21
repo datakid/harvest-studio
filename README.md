@@ -50,7 +50,7 @@ When the input is a launcher catalogue, each app's own data is used where a favi
 
 For each site the page head is read and icons are tried in this order, stopping at the first usable one: `apple-touch-icon`, SVG icon links, PNG icon links, web manifest icons, `.ico` icon links, `/favicon.ico`, then `rel="mask-icon"` (a one-colour SVG), the `msapplication-TileImage` meta tag, a set of well-known paths and finally `og:image`. The report names the winner in `source.type` (`mask-icon`, `tile-image`, `well-known`, `og-image`).
 
-- The well-known paths (`/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png`, `/favicon.svg`, `/favicon.png`, `/icon.png`, `/icon.svg`, `/logo192.png`) are tried only when the page declares no icon link at all. Each one is an extra request, so a page with no icon costs up to seven more.
+- The well-known paths (`/apple-touch-icon.png`, `/apple-touch-icon-precomposed.png`, `/favicon.svg`, `/favicon.png`, `/icon.png`, `/icon.svg`, `/logo192.png`) are tried only when the page was read and declares no icon link at all. Each one is an extra request, so a page with no icon costs up to seven more.
 - `og:image` is a last resort and is used only when it is square within 10%; share cards are usually wide and are skipped with the reason `not square`.
 - An address reached by two routes is fetched once.
 - **Favicon pack:** `favicon.ico` holds three PNG frames at 16, 32 and 48 pixels, each scaled from the full-size original. A custom `.ico` export never adds frames larger than its source (a 32 px source gives 16 and 32).

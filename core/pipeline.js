@@ -103,6 +103,7 @@ export const processTarget = async (t, ctx) => {
 
   const errors = [];
   let html = '';
+  let pageOk = false;
   let base = t.url;
   try {
     const res = await fetchRetry(io, t.url, { head: true });
@@ -114,6 +115,7 @@ export const processTarget = async (t, ctx) => {
       return result;
     }
     html = text(res.bytes);
+    pageOk = res.ok;
   } catch (e) {
     errors.push('page: ' + errText(e));
     result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
@@ -129,7 +131,7 @@ export const processTarget = async (t, ctx) => {
   const fetchIo = { fetchBytes: (u) => fetchRetry(io, u), attempt: (a) => result.attempts.push(a) };
   let lastBad = null;
   const tried = new Set();
-  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html))) {
+  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk })) {
     for (const c of await group()) {
       if (tried.has(c.href)) continue;
       tried.add(c.href);

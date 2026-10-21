@@ -132,4 +132,11 @@ await check('a blocked page records one page attempt', async () => {
   assert.deepEqual(r.report.items[0].attempts, [{ type: 'page', href: SITE, status: 'blocked', reason: 'HTTP 403 challenge or protection page' }]);
 });
 
+await check('well-known paths are not probed when the page itself could not be read', async () => {
+  const { item, calls } = await harvest({ [SITE + 'apple-touch-icon.png']: squarePng });
+  assert.equal(item.status, 'notfound');
+  assert.ok(!calls.includes(SITE + 'apple-touch-icon.png'));
+  assert.deepEqual(calls, [SITE, SITE + 'favicon.ico']);
+});
+
 finish();

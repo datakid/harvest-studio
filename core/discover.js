@@ -105,7 +105,7 @@ export const readBaseHref = (html, pageUrl) => {
 
 export const WELL_KNOWN = ['/apple-touch-icon.png', '/apple-touch-icon-precomposed.png', '/favicon.svg', '/favicon.png', '/icon.png', '/icon.svg', '/logo192.png'];
 
-export const candidateGroups = (links, base, errors, io, metas = {}) => {
+export const candidateGroups = (links, base, errors, io, metas = {}, { probe = true } = {}) => {
   const make = (type, list, from = base) =>
     list
       .map((l) => ({ type, href: resolveHref(l.href, from) }))
@@ -151,7 +151,7 @@ export const candidateGroups = (links, base, errors, io, metas = {}) => {
   const maskIcons = links.filter((l) => l.rel.includes('mask-icon'));
   const tile = async () => (metas['msapplication-tileimage'] ? make('tile-image', [{ href: metas['msapplication-tileimage'] }]) : []);
   const wellKnown = async () => {
-    if (iconLinks.length || apple.length) return [];
+    if (!probe || iconLinks.length || apple.length) return [];
     try {
       return make('well-known', WELL_KNOWN.map((p) => ({ href: new URL(p, base).href })));
     } catch {

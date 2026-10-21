@@ -153,6 +153,16 @@ await check('dark theme and arabic layout render without overflow', async () => 
   await shot(page, 'work-dark-ar');
 });
 
+await check('arabic mode: language is declared, names choose their own direction, and the css uses logical properties', async () => {
+  assert.equal(await page.evaluate(() => document.documentElement.lang), 'ar');
+  const dirs = await page.$$eval('.cell .name', (els) => els.map((e) => [e.getAttribute('dir'), getComputedStyle(e).direction]));
+  assert.ok(dirs.length > 0);
+  for (const [attr, computed] of dirs) assert.deepEqual([attr, computed], ['auto', 'ltr']);
+  const css = fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'app.css'), 'utf8') + fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'tokens.css'), 'utf8');
+  const physical = css.split('\n').filter((l) => /(margin|padding|border)-(left|right)|(^|[\s;{])(left|right)\s*:|float\s*:|text-align\s*:\s*(left|right)/.test(l) && !/^pre\.code/.test(l));
+  assert.deepEqual(physical, []);
+});
+
 const single = await open({ width: 1440, height: 900 });
 await single.evaluate(() => {
   localStorage.setItem('hs:prefs', JSON.stringify({ proxyUrl: 'http://localhost:4181/api/fetch' }));
@@ -183,7 +193,14 @@ await check('a text favicon is drawn in the browser worker with the bundled font
   await single.reload();
   await single.locator('#urls').fill('text.example.com');
   const font = single.waitForResponse((r) => /fonts\/readex-pro-text\.ttf$/.test(r.url()) && r.status() === 200, { timeout: 120000 });
+  await single.route(/api\/fetch\?url=.*text\.example\.com%2F$/, async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
   await single.click('#go');
+  await single.waitForSelector('[role="progressbar"]', { timeout: 20000 });
+  assert.equal(await single.locator('[role="progressbar"]').getAttribute('aria-valuemin'), '0');
+  assert.ok((await single.locator('[role="progressbar"]').getAttribute('aria-valuenow')) !== null);
   await font;
   await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
   await single.locator('.gallery .cell').first().click();

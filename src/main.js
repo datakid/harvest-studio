@@ -263,7 +263,7 @@ const scanPanel = (json, index) => {
       )
     );
   }
-  panel.append(h('ul', null, s.targets.slice(0, 4).map((x) => h('li', null, h('b', null, x.name || x.key), x.url ? '  ' + x.url : ''))));
+  panel.append(h('ul', null, s.targets.slice(0, 4).map((x) => h('li', null, h('b', { dir: 'auto' }, x.name || x.key), x.url ? h('span', { dir: 'ltr', class: 'href' }, '  ' + x.url) : null))));
   panel.append(h('div', { class: 'row' }, h('button', { class: 'btn quiet', type: 'button', onClick: () => { state.pending.jsons.splice(index, 1); renderMain(); } }, icon('trash', { size: 16 }), t('close'))));
   return panel;
 };
@@ -385,6 +385,8 @@ const updateProgress = () => {
   const share = phase === 'trace' ? 0.5 + (done / total) * 0.5 : (done / total) * 0.5;
   bar.style.width = Math.round(share * 100) + '%';
   text.textContent = t(phase === 'trace' ? 'tracing' : 'fetching', { done, total });
+  bar.parentElement.setAttribute('aria-valuenow', String(Math.round(share * 100)));
+  bar.parentElement.setAttribute('aria-valuetext', text.textContent);
 };
 
 const ago = (ms) => {
@@ -535,7 +537,7 @@ const renderBusy = () =>
   h(
     'section',
     { class: 'work', style: { display: 'block' } },
-    h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
+    h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress', role: 'progressbar', 'aria-label': t('working'), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
     h('div', { class: 'stage' }, h('ul', { class: 'gallery' }, Array.from({ length: state.ghosts }, () => h('li', null, h('div', { class: 'cell' }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' '))))))
   );
 
@@ -550,7 +552,7 @@ const cellEl = (rec, i) => {
       'button',
       { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), onClick: () => select(rec.key) },
       rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: { animation: 'none' } }),
-      h('span', { class: 'name' }, rec.name),
+      h('span', { class: 'name', dir: 'auto' }, rec.name),
       flag ? h('span', { class: 'flag ' + flag, title: reasonOf(rec) }, icon('warn', { size: 11, stroke: 2.4 })) : null
     )
   );
@@ -762,7 +764,7 @@ const selectedPanel = () => {
   if (!rec) return h('section', { class: 'panel' }, h('h2', null, t('icon')), h('p', { class: 'hint-text' }, t('noSelection')));
   const item = state.items.get(rec.key) || {};
   const panel = h('section', { class: 'panel' }, h('h2', null, t('icon')));
-  panel.append(h('div', { class: 'sel-head' }, rec.hasImage ? tile(rec, { size: 72 }) : h('span', { class: 'tile-art ghost', style: { '--size': '72px', animation: 'none' } }), h('div', null, h('h3', null, rec.name), h('small', null, rec.key))));
+  panel.append(h('div', { class: 'sel-head' }, rec.hasImage ? tile(rec, { size: 72 }) : h('span', { class: 'tile-art ghost', style: { '--size': '72px', animation: 'none' } }), h('div', null, h('h3', { dir: 'auto' }, rec.name), h('small', { dir: 'ltr' }, rec.key))));
   if (rec.hasImage) {
     const pickHex = (rec.tint && rec.tint[0]) || '#8c95b6';
     panel.append(

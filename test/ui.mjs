@@ -13,6 +13,8 @@ const shots = process.env.SHOTS || null;
 const files = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.png')).map((f) => path.join(fixturesDir, f));
 const site = {
   'https://demo.example.com/': { type: 'text/html', body: Buffer.from('<html><head><link rel="icon" type="image/png" sizes="192x192" href="/icon.png"></head></html>') },
+  'https://text.example.com/': { type: 'text/html', body: Buffer.from('<html><head><link rel="icon" type="image/svg+xml" href="/t.svg"></head></html>') },
+  'https://text.example.com/t.svg': { type: 'image/svg+xml', body: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1f6feb"/><text x="32" y="46" font-size="40" text-anchor="middle" fill="#fff" font-family="Arial">Ab</text></svg>') },
   'https://demo.example.com/icon.png': { type: 'image/png', body: fs.readFileSync(path.join(fixturesDir, 'dafter.png')) }
 };
 const proxy = createHandler({
@@ -175,6 +177,17 @@ await check('a single site address is harvested through the proxy', async () => 
   const [dl] = await Promise.all([single.waitForEvent('download'), single.getByRole('button', { name: 'Download .zip' }).click()]);
   const names = Object.keys(unzipSync(new Uint8Array(fs.readFileSync(await dl.path()))));
   assert.ok(names.includes('favicon.ico') && names.includes('icon-512.png'));
+});
+await check('a text favicon is drawn in the browser worker with the bundled font', async () => {
+  await single.keyboard.press('Escape');
+  await single.reload();
+  await single.locator('#urls').fill('text.example.com');
+  const font = single.waitForResponse((r) => /fonts\/readex-pro-text\.ttf$/.test(r.url()) && r.status() === 200, { timeout: 120000 });
+  await single.click('#go');
+  await font;
+  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.locator('.gallery .cell').first().click();
+  assert.ok(await single.getByText(/svg http/).count());
 });
 await check('a wrong proxy token explains itself', async () => {
   await single.keyboard.press('Escape');

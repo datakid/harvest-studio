@@ -30,6 +30,8 @@ export const WASM_FILES = {
 };
 
 let source = null;
+let fontSource = null;
+let fontBytes = null;
 const compiled = new Map();
 
 export const configureRuntime = (config) => {
@@ -37,6 +39,22 @@ export const configureRuntime = (config) => {
     source = config.wasmSource;
     compiled.clear();
   }
+  if (config.fontSource) {
+    fontSource = config.fontSource;
+    fontBytes = null;
+  }
+};
+
+export const textFont = async () => {
+  if (!fontSource) return null;
+  if (!fontBytes) {
+    try {
+      fontBytes = new Uint8Array(await fontSource());
+    } catch {
+      return null;
+    }
+  }
+  return fontBytes;
 };
 
 export const wasmModule = (id) => {

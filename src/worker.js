@@ -23,6 +23,11 @@ configureRuntime({
     const res = await fetch(wasmBase + id + '.wasm');
     if (!res.ok) throw new Error('could not load ' + id + '.wasm');
     return res.arrayBuffer();
+  },
+  fontSource: async () => {
+    const res = await fetch(wasmBase.replace(/wasm\/$/, '') + 'fonts/readex-pro-text.ttf');
+    if (!res.ok) throw new Error('could not load the text font');
+    return res.arrayBuffer();
   }
 });
 

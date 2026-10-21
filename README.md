@@ -41,7 +41,7 @@ When the input is a launcher catalogue, each app's own data is used where a favi
 - **Re-harvesting a few keys:** `--only key1,key2` fetches only those keys. Every other key keeps its entry, image and tint from the existing `manifest.v2.json` and atlas, so the manifest hash does not move when nothing changed. Unknown keys stop the run. Without an earlier manifest the other keys are left out and a warning says so.
 - **Blocked sites:** a page answering 401, 403 or 429, or carrying a Vercel or Cloudflare challenge, is reported `blocked`. Netlify documents 401 for password-protected sites and a `Netlify-Site-Protection-Expires-In` header for single sign-on; it documents no markers in the prompt page, so none are matched.
 - **Missing favicons:** with `--fa-fallback` (CLI) or the "Use the catalogue icon when no favicon is found" switch in the Studio, a key that ends `notfound` and has no earlier entry to keep is marked `override` and the report names its FontAwesome icon in `fa`. Blocked keys are never converted; they stay `blocked` so you can act on them. It is off by default.
-- **Names:** titles and variant labels given as `{ "ar": …, "en": … }` are shown as plain text, the app title plus the variant label (for example "Paid · Daleel 460"). The Studio uses its own language, the CLI uses English.
+- **Names:** titles and variant labels given as `{ "ar": …, "en": … }` are shown as plain text, the app title plus the variant label (for example "Paid · Daleel 460"). The Studio uses its own language, the CLI uses English. The same applies to any JSON: a name, url or icon field written as `{ "en": …, "ar": … }` is read as one field, and when a file has more than one label language the import panel shows a "Names in" picker (default: the interface language). Keys come from `id`, or from the English label, so they never change with the chosen language.
 - **Closed apps:** `closed: true` is copied to the report item. The launcher output is not changed.
 
 `test/sample-output/` holds the Launcher profile run on the 33 current icons, for checking the launcher against real output.
@@ -81,7 +81,7 @@ Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches p
 Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings. The token stays in the browser tab only. Keep the token private.
 
 - **Rate limit:** each token may make `STUDIO_RATE_LIMIT` requests per minute (default 1200, which covers a full catalogue run; `0` turns it off). Over the limit the proxy answers 429 with `retry-after`, and the Studio stops with a message naming the wait. Requests with a wrong token do not count. The counter lives in the memory of one function instance, so on Vercel it limits each warm instance, not the whole project; treat it as a guard against loops, not as a quota.
-- **Caching:** a successful image response carries `cache-control: private, max-age=300`. Everything else, including errors, stays `no-store`.
+- **Caching:** a successful image response carries `cache-control: private, max-age=300` and `vary: x-studio-token`, so a request with another token never reuses the cached copy. Everything else, including errors, stays `no-store`.
 
 ## Deploy
 

@@ -101,4 +101,47 @@ await check('catalogue names are plain text: app title plus variant label', () =
   assert.equal(ar['paid-calculator--daleel'], 'المنفذ والتحمل · دليل 460');
 });
 
+const bilingual = {
+  sites: [
+    { id: 'alpha', name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://alpha.example.com', logo: 'https://alpha.example.com/logo.png' },
+    { id: 'beta', name: { en: 'Beta', ar: 'بيتا' }, url: 'https://beta.example.com' },
+    { id: 'gamma', name: { ar: 'جاما' }, url: 'https://gamma.example.com' }
+  ]
+};
+
+await check('generic json: name objects pick the chosen language and fall back', () => {
+  const en = scanJson(bilingual, {}, 'en');
+  assert.equal(en.kind, 'generic');
+  assert.equal(en.fields.nameField, 'name');
+  assert.deepEqual(en.targets.map((t) => t.name), ['Alpha', 'Beta', 'جاما']);
+  assert.deepEqual(scanJson(bilingual, {}, 'ar').targets.map((t) => t.name), ['ألفا', 'بيتا', 'جاما']);
+  assert.equal(en.candidates.name[0], 'name');
+});
+
+await check('generic json: keys do not change with the label language', () => {
+  const noId = { sites: [{ name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://a.example.com' }, { name: { en: 'Beta', ar: 'بيتا' }, url: 'https://b.example.com' }] };
+  const keys = (lang) => scanJson(noId, {}, lang).targets.map((t) => t.key);
+  assert.deepEqual(keys('en'), ['alpha', 'beta']);
+  assert.deepEqual(keys('ar'), keys('en'));
+  assert.deepEqual(scanJson(bilingual, {}, 'ar').targets.map((t) => t.key), ['alpha', 'beta', 'gamma']);
+});
+
+await check('generic json: url and icon fields may also be locale objects', () => {
+  const data = { items: [{ title: { en: 'One' }, link: { en: 'https://one.example.com', ar: 'https://one.example.com/ar' }, icon: { en: 'https://one.example.com/i.png' } }, { title: { en: 'Two' }, link: { en: 'https://two.example.com' } }] };
+  const en = scanJson(data, {}, 'en');
+  assert.deepEqual(en.targets.map((t) => t.url), ['https://one.example.com', 'https://two.example.com']);
+  assert.equal(en.targets[0].iconHref, 'https://one.example.com/i.png');
+  assert.equal(scanJson(data, {}, 'ar').targets[0].url, 'https://one.example.com/ar');
+});
+
+await check('the scan lists the label languages found in the file', () => {
+  assert.deepEqual(scanJson(bilingual).languages, ['ar', 'en']);
+  assert.deepEqual(scanJson(links).languages, ['ar', 'en']);
+  assert.deepEqual(scanJson({ sites: [{ name: 'A', url: 'https://a.example.com' }] }).languages, []);
+});
+
+await check('pickLabel accepts upper-case language keys', () => {
+  assert.equal(pickLabel({ EN: 'A', AR: 'أ' }, 'ar'), 'أ');
+});
+
 finish();

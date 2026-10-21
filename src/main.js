@@ -164,7 +164,7 @@ const renderBar = () => {
           prefs.lang = getLang() === 'ar' ? 'en' : 'ar';
           setLang(prefs.lang);
           save();
-          for (const j of state.pending.jsons) rescan(j, j.scan.fields || {}, prefs.lang);
+          for (const j of state.pending.jsons) rescan(j, j.scan.fields || {}, langOf(j));
           renderAll();
         }
       },
@@ -195,6 +195,8 @@ const pendingChips = () => {
   return chips.length ? h('div', { class: 'chips' }, chips) : null;
 };
 
+const langOf = (json) => json.lang || getLang();
+
 const scanPanel = (json, index) => {
   const s = json.scan;
   const panel = h('div', { class: 'scan' });
@@ -219,8 +221,8 @@ const scanPanel = (json, index) => {
                 delete f.urlField;
                 delete f.iconField;
                 delete f.nameField;
-                rescan(json, { collection: v }, getLang());
-              } else rescan(json, f, getLang());
+                rescan(json, { collection: v }, langOf(json));
+              } else rescan(json, f, langOf(json));
               renderMain();
             }
           },
@@ -236,6 +238,28 @@ const scanPanel = (json, index) => {
         s.candidates.url.length ? select(t('scanUrl'), 'urlField', s.candidates.url, s.fields.urlField, true) : null,
         s.candidates.icon.length ? select(t('scanIcon'), 'iconField', s.candidates.icon, s.fields.iconField, true) : null,
         s.candidates.name.length ? select(t('scanName'), 'nameField', s.candidates.name, s.fields.nameField, true) : null
+      )
+    );
+  }
+  if (s.languages && s.languages.length > 1) {
+    panel.append(
+      h(
+        'div',
+        { class: 'field' },
+        h('label', { for: 'label-lang-' + index }, t('labelLanguage')),
+        h(
+          'select',
+          {
+            id: 'label-lang-' + index,
+            onChange: (e) => {
+              json.lang = e.target.value || null;
+              rescan(json, s.fields || {}, langOf(json));
+              renderMain();
+            }
+          },
+          h('option', { value: '', selected: !json.lang }, t('labelLanguageAuto')),
+          s.languages.map((l) => h('option', { value: l, selected: l === json.lang }, l))
+        )
       )
     );
   }

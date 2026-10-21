@@ -231,7 +231,7 @@ const cors = (res, env) => {
   res.setHeader('access-control-allow-headers', 'x-studio-token');
   res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
   res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-vercel-mitigated, retry-after, content-type');
-  res.setHeader('vary', 'origin');
+  res.setHeader('vary', 'origin, x-studio-token');
   res.setHeader('cache-control', 'no-store');
 };
 

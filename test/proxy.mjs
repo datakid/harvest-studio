@@ -251,6 +251,7 @@ await check('only successful image responses are cached, briefly and privately',
   assert.equal((await call(make(async () => body('<html></html>')), { url: 'https://example.com/' })).headers['cache-control'], 'no-store');
   assert.equal((await call(img, { url: 'https://example.com/a.png', token: 'nope' })).headers['cache-control'], 'no-store');
   assert.equal((await call(make(async () => body('x', 200, 'application/pdf')), { url: 'https://example.com/a.pdf' })).headers['cache-control'], 'no-store');
+  assert.match((await call(img, { url: 'https://example.com/a.png' })).headers.vary, /x-studio-token/);
 });
 
 finish();

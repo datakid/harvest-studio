@@ -214,6 +214,18 @@ await check('a json file shows what was found and lets the fields be changed', a
   assert.ok(await single.getByText(/Found 2 in tools/).count());
 });
 
+await check('names given as language objects follow a language picker in the import panel', async () => {
+  await single.reload();
+  const data = { sites: [{ id: 'alpha', name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://alpha.test' }, { id: 'beta', name: { en: 'Beta', ar: 'بيتا' }, url: 'https://beta.test' }] };
+  await single.setInputFiles('#pick-files', [{ name: 'sites.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) }]);
+  await single.waitForSelector('#label-lang-0');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
+  await single.locator('#label-lang-0').selectOption('ar');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('ألفا')));
+  await single.locator('#label-lang-0').selectOption('');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
+});
+
 const phone = await open({ width: 390, height: 844 }, 'dark');
 await harvest(phone);
 await check('phone layout has no horizontal scroll and 44px targets', async () => {

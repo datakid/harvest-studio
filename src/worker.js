@@ -55,6 +55,11 @@ const makeIo = () => ({
       e.fatal = true;
       throw e;
     }
+    if (res.status === 429 && !res.headers.get('x-upstream-status')) {
+      const e = new Error('the proxy rate limit was reached, wait ' + (res.headers.get('retry-after') || 'a minute') + ' seconds and run again');
+      e.fatal = true;
+      throw e;
+    }
     if (!res.headers.get('x-upstream-status')) {
       let why = 'HTTP ' + res.status;
       try {

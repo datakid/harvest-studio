@@ -77,7 +77,10 @@ Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches p
 - passes only pages, images, JSON and manifests
 - returns the upstream status in `x-upstream-status`
 
-Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings. The token stays in the browser tab only. There is no rate limiting; keep the token private.
+Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings. The token stays in the browser tab only. Keep the token private.
+
+- **Rate limit:** each token may make `STUDIO_RATE_LIMIT` requests per minute (default 1200, which covers a full catalogue run; `0` turns it off). Over the limit the proxy answers 429 with `retry-after`, and the Studio stops with a message naming the wait. Requests with a wrong token do not count. The counter lives in the memory of one function instance, so on Vercel it limits each warm instance, not the whole project; treat it as a guard against loops, not as a quota.
+- **Caching:** a successful image response carries `cache-control: private, max-age=300`. Everything else, including errors, stays `no-store`.
 
 ## Deploy
 

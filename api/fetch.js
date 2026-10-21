@@ -199,17 +199,45 @@ const sameToken = (given, expected) => {
   return crypto.timingSafeEqual(a, b);
 };
 
+export const DEFAULT_RATE = 1200;
+const RATE_WINDOW_MS = 60000;
+
+export const createLimiter = ({ limit, now = Date.now, windowMs = RATE_WINDOW_MS }) => {
+  const windows = new Map();
+  return (key) => {
+    if (!limit) return { ok: true };
+    const t = now();
+    if (windows.size > 1000) for (const [k, w] of windows) if (t - w.start >= windowMs) windows.delete(k);
+    let w = windows.get(key);
+    if (!w || t - w.start >= windowMs) {
+      w = { start: t, count: 0 };
+      windows.set(key, w);
+    }
+    if (w.count >= limit) return { ok: false, retryAfter: Math.max(1, Math.ceil((w.start + windowMs - t) / 1000)) };
+    w.count++;
+    return { ok: true };
+  };
+};
+
+const rateFrom = (env) => {
+  const raw = env.STUDIO_RATE_LIMIT;
+  if (raw === undefined || raw === '') return DEFAULT_RATE;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : DEFAULT_RATE;
+};
+
 const cors = (res, env) => {
   res.setHeader('access-control-allow-origin', env.STUDIO_ORIGIN || '*');
   res.setHeader('access-control-allow-headers', 'x-studio-token');
   res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
-  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-vercel-mitigated, content-type');
+  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-vercel-mitigated, retry-after, content-type');
   res.setHeader('vary', 'origin');
   res.setHeader('cache-control', 'no-store');
 };
 
-export const createHandler = ({ resolve = defaultResolve, request = defaultRequest, env = process.env, limits = LIMITS } = {}) =>
-  async (req, res) => {
+export const createHandler = ({ resolve = defaultResolve, request = defaultRequest, env = process.env, limits = LIMITS, now = Date.now } = {}) => {
+  const allow = createLimiter({ limit: rateFrom(env), now });
+  return async (req, res) => {
     cors(res, env);
     const send = (status, body, type = 'application/json') => {
       res.statusCode = status;
@@ -222,6 +250,11 @@ export const createHandler = ({ resolve = defaultResolve, request = defaultReque
       if (!env.STUDIO_TOKEN) throw new ProxyError(500, 'the proxy has no STUDIO_TOKEN configured');
       const header = req.headers['x-studio-token'];
       if (!sameToken(header, env.STUDIO_TOKEN)) throw new ProxyError(401, 'missing or wrong access token');
+      const turn = allow(crypto.createHash('sha256').update(String(header)).digest('hex'));
+      if (!turn.ok) {
+        res.setHeader('retry-after', String(turn.retryAfter));
+        throw new ProxyError(429, 'rate limit reached, try again in ' + turn.retryAfter + ' seconds');
+      }
       const params = new URL(req.url, 'http://local').searchParams;
       const target = params.get('url');
       if (!target) throw new ProxyError(400, 'url is required');
@@ -240,11 +273,13 @@ export const createHandler = ({ resolve = defaultResolve, request = defaultReque
       if (up.headers['x-vercel-mitigated']) res.setHeader('x-vercel-mitigated', String(up.headers['x-vercel-mitigated']));
       res.statusCode = 200;
       res.setHeader('content-type', type || 'application/octet-stream');
+      if (up.status === 200 && /^image\//i.test(type)) res.setHeader('cache-control', 'private, max-age=300');
       res.end(body);
     } catch (e) {
       if (e instanceof ProxyError) return send(e.status, { error: e.message });
       return send(502, { error: 'upstream request failed' });
     }
   };
+};
 
 export default createHandler();

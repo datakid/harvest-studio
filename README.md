@@ -78,6 +78,10 @@ Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches p
 - passes only pages, images, JSON and manifests
 - returns the upstream status in `x-upstream-status`
 
+Without a proxy the Studio can only reach sites that allow direct browser access; every other address ends `not found` with the reason "needs the fetch proxy" in its item panel, and a notice names how many were not reached. Images you drop in never need the proxy.
+
+The Studio's launcher export includes `harvest-report.json` from the last harvest (with a `note` saying so); edits made in the Studio afterwards are not reflected in it. Opened sets have no report.
+
 Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings. The token stays in the browser tab only. Keep the token private.
 
 - **Rate limit:** each token may make `STUDIO_RATE_LIMIT` requests per minute (default 1200, which covers a full catalogue run; `0` turns it off). Over the limit the proxy answers 429 with `retry-after`, and the Studio stops with a message naming the wait. Requests with a wrong token do not count. The counter lives in the memory of one function instance, so on Vercel it limits each warm instance, not the whole project; treat it as a guard against loops, not as a quota.

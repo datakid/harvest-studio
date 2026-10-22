@@ -3,12 +3,9 @@ import { encodePng, encodeWebp, encodeAvif, encodeJxl, resizeStretch } from './c
 const u32 = (n) => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const u16 = (n) => [n & 255, (n >> 8) & 255];
 
-export const encodeIco = async (img, sizes = [16, 32, 48]) => {
+export const encodeIcoFrames = async (images) => {
   const frames = [];
-  for (const s of sizes) {
-    const frame = s === img.width && s === img.height ? img : await resizeStretch(img, s, s);
-    frames.push({ size: s, png: await encodePng(frame) });
-  }
+  for (const img of images) frames.push({ size: img.width, png: await encodePng(img) });
   const head = [0, 0, 1, 0, ...u16(frames.length)];
   let offset = 6 + frames.length * 16;
   const dir = [];
@@ -24,6 +21,14 @@ export const encodeIco = async (img, sizes = [16, 32, 48]) => {
     at += f.png.length;
   }
   return out;
+};
+
+export const encodeIco = async (img, sizes = [16, 32, 48]) => {
+  const reach = Math.max(img.width, img.height);
+  const wanted = sizes.filter((s) => s <= reach);
+  const images = [];
+  for (const s of wanted.length ? wanted : [Math.min(...sizes)]) images.push(s === img.width && s === img.height ? img : await resizeStretch(img, s, s));
+  return encodeIcoFrames(images);
 };
 
 export const encodeImage = async (img, { format = 'png', quality = 90, lossless = false, effort = 6 } = {}) => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { check, finish, studioDir } from './util.mjs';
-import { scanJson, hostKey, normalizeUrl, uniqueKeys } from '../core/sources.js';
+import { scanJson, hostKey, normalizeUrl, uniqueKeys, pickLabel } from '../core/sources.js';
 import { readLinks, readBaseHref } from '../core/discover.js';
 
 const links = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.json'), 'utf8'));
@@ -77,6 +77,71 @@ await check('icon links keep a > inside a quoted attribute, as inline SVG favico
 await check('icon links ignore commented-out and script-embedded tags', () => {
   const found = readLinks('<!-- <link rel="icon" href="/old.png"> --><script>var s = \'<link rel="icon" href="/js.png">\';</script><link rel=icon href=/real.png>');
   assert.deepEqual(found.map((l) => l.href), ['/real.png']);
+});
+
+await check('pickLabel handles strings, locale objects and gaps', () => {
+  assert.equal(pickLabel('Plain'), 'Plain');
+  assert.equal(pickLabel({ ar: 'أ', en: 'A' }, 'ar'), 'أ');
+  assert.equal(pickLabel({ ar: 'أ', en: 'A' }, 'fr'), 'A');
+  assert.equal(pickLabel({ ar: 'أ' }, 'en'), 'أ');
+  assert.equal(pickLabel({ de: 'D' }, 'en'), 'D');
+  assert.equal(pickLabel(null), '');
+  assert.equal(pickLabel({ en: '' }), '');
+});
+
+await check('catalogue names are plain text: app title plus variant label', () => {
+  const en = scanJson(links, {}, 'en').targets;
+  assert.ok(en.every((t) => typeof t.name === 'string' && !/object/i.test(t.name)));
+  const byKey = Object.fromEntries(en.map((t) => [t.key, t.name]));
+  assert.equal(byKey.protocols, 'Protocols');
+  assert.equal(byKey['paid-calculator--daleel'], 'Paid · Daleel 460');
+  assert.equal(byKey['ledger-form--tally'], 'Form · Tally');
+  const ar = Object.fromEntries(scanJson(links, {}, 'ar').targets.map((t) => [t.key, t.name]));
+  assert.equal(ar.protocols, 'بروتوكولات الصرف');
+  assert.equal(ar['paid-calculator--daleel'], 'المنفذ والتحمل · دليل 460');
+});
+
+const bilingual = {
+  sites: [
+    { id: 'alpha', name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://alpha.example.com', logo: 'https://alpha.example.com/logo.png' },
+    { id: 'beta', name: { en: 'Beta', ar: 'بيتا' }, url: 'https://beta.example.com' },
+    { id: 'gamma', name: { ar: 'جاما' }, url: 'https://gamma.example.com' }
+  ]
+};
+
+await check('generic json: name objects pick the chosen language and fall back', () => {
+  const en = scanJson(bilingual, {}, 'en');
+  assert.equal(en.kind, 'generic');
+  assert.equal(en.fields.nameField, 'name');
+  assert.deepEqual(en.targets.map((t) => t.name), ['Alpha', 'Beta', 'جاما']);
+  assert.deepEqual(scanJson(bilingual, {}, 'ar').targets.map((t) => t.name), ['ألفا', 'بيتا', 'جاما']);
+  assert.equal(en.candidates.name[0], 'name');
+});
+
+await check('generic json: keys do not change with the label language', () => {
+  const noId = { sites: [{ name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://a.example.com' }, { name: { en: 'Beta', ar: 'بيتا' }, url: 'https://b.example.com' }] };
+  const keys = (lang) => scanJson(noId, {}, lang).targets.map((t) => t.key);
+  assert.deepEqual(keys('en'), ['alpha', 'beta']);
+  assert.deepEqual(keys('ar'), keys('en'));
+  assert.deepEqual(scanJson(bilingual, {}, 'ar').targets.map((t) => t.key), ['alpha', 'beta', 'gamma']);
+});
+
+await check('generic json: url and icon fields may also be locale objects', () => {
+  const data = { items: [{ title: { en: 'One' }, link: { en: 'https://one.example.com', ar: 'https://one.example.com/ar' }, icon: { en: 'https://one.example.com/i.png' } }, { title: { en: 'Two' }, link: { en: 'https://two.example.com' } }] };
+  const en = scanJson(data, {}, 'en');
+  assert.deepEqual(en.targets.map((t) => t.url), ['https://one.example.com', 'https://two.example.com']);
+  assert.equal(en.targets[0].iconHref, 'https://one.example.com/i.png');
+  assert.equal(scanJson(data, {}, 'ar').targets[0].url, 'https://one.example.com/ar');
+});
+
+await check('the scan lists the label languages found in the file', () => {
+  assert.deepEqual(scanJson(bilingual).languages, ['ar', 'en']);
+  assert.deepEqual(scanJson(links).languages, ['ar', 'en']);
+  assert.deepEqual(scanJson({ sites: [{ name: 'A', url: 'https://a.example.com' }] }).languages, []);
+});
+
+await check('pickLabel accepts upper-case language keys', () => {
+  assert.equal(pickLabel({ EN: 'A', AR: 'أ' }, 'ar'), 'أ');
 });
 
 finish();

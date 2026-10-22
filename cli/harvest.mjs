@@ -3,14 +3,14 @@ import './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runHarvest, buildTargets, extrasToTargets, mergeTargets, errText, RASTER_EXT } from '../core/index.js';
+import { runHarvest, buildTargets, extrasToTargets, mergeTargets, errText, RASTER_EXT, readHead } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
 const repoRoot = process.cwd();
 
 const parseArgs = (argv) => {
-  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null };
+  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -22,6 +22,8 @@ const parseArgs = (argv) => {
     else if (a === '--out') out.out = path.resolve(take(i++, a));
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
+    else if (a === '--fa-fallback') out.faFallback = true;
+    else if (a === '--only') out.only = take(i++, a).split(',').map((k) => k.trim()).filter(Boolean);
     else throw new Error('unknown flag ' + a);
   }
   if (!['launcher', 'legacy-v1'].includes(out.profile)) throw new Error('--profile must be launcher or legacy-v1');
@@ -59,12 +61,21 @@ const main = async () => {
   const overrides = await readJson(overridesPath, {});
   const extras = extrasToTargets(await readJson(extrasPath, {}));
   const targets = mergeTargets(buildTargets(catalog), extras);
+  if (args.only) {
+    const known = new Set(targets.map((t) => t.key));
+    const unknown = args.only.filter((k) => !known.has(k));
+    if (!args.only.length || unknown.length) {
+      console.error(args.only.length ? '--only has unknown keys: ' + unknown.join(', ') : '--only needs at least one key');
+      return 1;
+    }
+  }
 
   await fs.mkdir(args.out, { recursive: true });
   const io = {
-    fetchBytes: async (url) => {
+    fetchBytes: async (url, options = {}) => {
       const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 LinkExpressIconBot' } });
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
+      const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: res.headers.get('x-vercel-mitigated') };
     },
     readLocal: async (key) => {
       for (const ext of RASTER_EXT) {
@@ -93,7 +104,7 @@ const main = async () => {
 
   const result = await runHarvest(
     { targets, overrides },
-    { profile: args.profile, local: !!args.from, seed: args.seed },
+    { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only },
     io
   );
   const exp = result.export;
@@ -121,6 +132,10 @@ const main = async () => {
   for (const item of result.report.items) {
     const how = item.source ? item.source.type + ' ' + item.source.href : '-';
     console.log(item.status.padEnd(9) + item.key.padEnd(30) + how + (item.why ? '  ' + item.why.join(',') : '') + (item.error ? '  ' + item.error : ''));
+  }
+  if (args.only) {
+    const lost = result.report.items.filter((i) => !args.only.includes(i.key) && i.status === 'notfound').map((i) => i.key);
+    if (lost.length) console.error('warning: ' + lost.length + ' other keys have no entry in the existing manifest and are left out');
   }
   console.log('');
   console.log(JSON.stringify(result.report.summary));

@@ -149,6 +149,11 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
 dl.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font-size: 13.5px; }
 dl.facts dt { color: var(--muted); }
 dl.facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.attempts { margin-block-start: 12px; font-size: 13px; }
+.attempts summary { cursor: pointer; color: var(--muted); }
+.attempts ol { margin: 8px 0 0; padding-inline-start: 20px; display: grid; gap: 6px; }
+.attempts .href { overflow-wrap: anywhere; color: var(--muted); }
+.attempts .why { color: var(--muted); }
 .pill { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12.5px; background: var(--surface-2); }
 .pill.warn { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
 .pill.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }

@@ -12,6 +12,7 @@
     "postinstall": "npm install --prefix core --no-audit --no-fund"
   },
   "dependencies": {
+    "@expo-google-fonts/readex-pro": "^0.4.1",
     "@fontsource-variable/readex-pro": "^5.2.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

@@ -42,14 +42,14 @@ export const parseUrls = (text) =>
     .map((s) => ({ raw: s, url: normalizeUrl(s) }))
     .filter((x) => x.url);
 
-export const readJsonFile = async (file) => {
+export const readJsonFile = async (file, lang = 'en') => {
   const text = await file.text();
   const data = JSON.parse(text.replace(/^﻿/, ''));
-  return { name: file.name, data, scan: scanJson(data) };
+  return { name: file.name, data, scan: scanJson(data, {}, lang) };
 };
 
-export const rescan = (json, fields) => {
-  json.scan = scanJson(json.data, fields);
+export const rescan = (json, fields, lang = 'en') => {
+  json.scan = scanJson(json.data, fields, lang);
   return json;
 };
 

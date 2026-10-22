@@ -169,11 +169,11 @@ export const hasAlphaChannel = (bytes, ext, img) => {
 
 export const normalize = async (bytes, ext) => {
   const decoded = await decodeImage(bytes, ext);
-  const opaque = ext === 'ico' || ext === 'svg' ? false : !hasAlphaChannel(bytes, ext, decoded);
+  const opaque = ext === 'svg' ? false : !hasAlphaChannel(bytes, ext, decoded.image);
   let img = await resizeTo(decoded.image, 192, 192);
   if (opaque) img = await matteCorners(img);
   const original = decoded.image.width <= 1024 && decoded.image.height <= 1024 ? decoded.image : null;
-  return { img, srcWidth: decoded.srcWidth, original };
+  return { img, srcWidth: decoded.srcWidth, original, ratio: decoded.image.width / decoded.image.height };
 };
 
 export const gate = (img, srcWidth) => {

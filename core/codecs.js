@@ -1,5 +1,7 @@
 import './runtime.js';
-import { wasmModule, lazyInit } from './runtime.js';
+import { wasmModule, lazyInit, textFont } from './runtime.js';
+
+const TEXT_FAMILY = 'Readex Pro';
 import decodePngRaw, { init as initPngDec } from '@jsquash/png/decode.js';
 import encodePngRaw, { init as initPngEnc } from '@jsquash/png/encode.js';
 import optimisePng, { init as initOxipng } from '@jsquash/oxipng/optimise.js';
@@ -170,12 +172,32 @@ export const resizeKernel = async (img, width, height, method) => {
   return plain(out);
 };
 
+const SUPPORTED_TEXT = /^[\s\u0020-\u024f\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\u1e00-\u1eff\u2000-\u206f\u20a0-\u20cf\ufb50-\ufdff\ufe70-\ufeff]*$/;
+
+const decodeEntities = (v) =>
+  v.replace(/&#x([0-9a-f]+);|&#(\d+);/gi, (m, h, d) => {
+    const code = h ? parseInt(h, 16) : parseInt(d, 10);
+    return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+  });
+
+export const svgTextUnsupported = (svg) => {
+  for (const m of String(svg).matchAll(/<text\b[^>]*>([\s\S]*?)<\/text\s*>/gi)) {
+    if (!SUPPORTED_TEXT.test(decodeEntities(m[1].replace(/<[^>]*>/g, '')))) return true;
+  }
+  return false;
+};
+
 export const rasterSvg = async (svg, { width = null, height = null, background = null } = {}) => {
   await ready.resvg();
   const opts = {};
   if (width) opts.fitTo = { mode: 'width', value: width };
   else if (height) opts.fitTo = { mode: 'height', value: height };
   if (background) opts.background = background;
+  if (/<text[\s>]/i.test(svg)) {
+    if (svgTextUnsupported(svg)) throw new Error('svg text uses characters the bundled font lacks (emoji and scripts other than Latin and Arabic)');
+    const font = await textFont();
+    if (font) opts.font = { fontBuffers: [font], defaultFontFamily: TEXT_FAMILY, loadSystemFonts: false };
+  }
   const r = new Resvg(svg, opts);
   const out = r.render();
   const px = out.pixels;

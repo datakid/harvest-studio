@@ -13,7 +13,6 @@
     "@jsquash/resize": "^2.1.1",
     "@jsquash/webp": "^1.5.0",
     "@resvg/resvg-wasm": "^2.6.2",
-    "decode-ico": "^0.4.1",
     "esm-potrace-wasm": "^0.5.1",
     "fflate": "^0.8.2",
     "omggif": "^1.0.10",

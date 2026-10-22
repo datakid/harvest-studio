@@ -10,12 +10,14 @@
     "index-builder",
     "ledger-form--tally",
     "paid-calculator--calc",
+    "parser",
     "pharmacy-tools--bugvert",
     "pharmacy-tools--pillbug",
     "plan-maker--express",
     "plan-maker--full",
     "prep--floe",
     "prep--prep",
+    "protocols",
     "qisma-mizan--express",
     "qisma-mizan--full",
     "roi--express",
@@ -24,6 +26,7 @@
     "survival-mirror",
     "text-tools--text",
     "text-tools--weft",
+    "to-do",
     "workspace"
   ],
   "atlas": {
@@ -49,6 +52,7 @@
       "index-builder",
       "ledger-form--tally",
       "paid-calculator--calc",
+      "parser",
       "plan-maker--express",
       "prep--floe",
       "roi--full",
@@ -65,10 +69,12 @@
         "entity-tracker",
         "index-builder",
         "paid-calculator--calc",
+        "parser",
         "plan-maker--express",
         "plan-maker--full",
         "solver",
-        "survival-mirror"
+        "survival-mirror",
+        "to-do"
       ],
       [
         "drug-list--free",
@@ -79,6 +85,7 @@
         "pharmacy-tools--pillbug",
         "prep--floe",
         "prep--prep",
+        "protocols",
         "qisma-mizan--express",
         "qisma-mizan--full",
         "roi--express",
@@ -91,6 +98,7 @@
     "mode": "follow",
     "seed": "1f2e3d4c",
     "tightGroups": [
+      "protocols",
       "qisma-mizan--express",
       "roi--express",
       "roi--full",
@@ -103,9 +111,10 @@
     "failures": [],
     "ok": true
   },
-  "generatedAt": "2026-10-19T20:13:54.893Z",
+  "generatedAt": "2026-10-21T20:12:49.882Z",
   "items": [
     {
+      "closed": true,
       "error": null,
       "glyph": "symbol",
       "harvest": "found",
@@ -130,6 +139,7 @@
       "why": null
     },
     {
+      "closed": true,
       "error": null,
       "glyph": "atlas",
       "harvest": "found",
@@ -139,7 +149,12 @@
         "type": "local"
       },
       "status": "found",
-      "tint": null,
+      "tint": [
+        "#707a8c",
+        "#7c9bff",
+        "#1c2f8f"
+      ],
+      "tintSource": "catalogue",
       "trace": {
         "accepted": false,
         "bytes": 816,
@@ -160,9 +175,9 @@
       },
       "status": "found",
       "tint": [
-        "#bc73be",
-        "#f4baf4",
-        "#612664"
+        "#b574bf",
+        "#ebbdf0",
+        "#5b2764"
       ],
       "trace": {
         "accepted": true,
@@ -184,9 +199,9 @@
       },
       "status": "found",
       "tint": [
-        "#ae790d",
-        "#ecb968",
-        "#4b3100"
+        "#a97803",
+        "#e5b86a",
+        "#463004"
       ],
       "trace": {
         "accepted": true,
@@ -279,7 +294,12 @@
         "type": "local"
       },
       "status": "found",
-      "tint": null,
+      "tint": [
+        "#c96b8b",
+        "#ffb3d9",
+        "#8a1150"
+      ],
+      "tintSource": "catalogue",
       "trace": {
         "accepted": true,
         "bytes": 361,
@@ -299,7 +319,12 @@
         "type": "local"
       },
       "status": "found",
-      "tint": null,
+      "tint": [
+        "#be7834",
+        "#eaaf58",
+        "#672901"
+      ],
+      "tintSource": "catalogue",
       "trace": {
         "accepted": true,
         "bytes": 915,
@@ -751,7 +776,12 @@
         "type": "local"
       },
       "status": "found",
-      "tint": null,
+      "tint": [
+        "#aa7aca",
+        "#e9e1ff",
+        "#59279b"
+      ],
+      "tintSource": "catalogue",
       "trace": {
         "accepted": true,
         "bytes": 265,
@@ -843,7 +873,12 @@
         "type": "local"
       },
       "status": "found",
-      "tint": null,
+      "tint": [
+        "#b45cc9",
+        "#f0aef0",
+        "#5b1a66"
+      ],
+      "tintSource": "catalogue",
       "trace": {
         "accepted": true,
         "bytes": 414,
@@ -879,6 +914,7 @@
     "ledger-form--tally",
     "drug-list--free",
     "drug-list--full",
+    "protocols",
     "id-dates--id",
     "id-dates--contacts",
     "roi--express",

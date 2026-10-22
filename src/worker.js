@@ -12,6 +12,7 @@ import {
   buildCustomExport,
   buildFaviconPack,
   zipFiles,
+  readHead,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
@@ -22,6 +23,11 @@ configureRuntime({
     const res = await fetch(wasmBase + id + '.wasm');
     if (!res.ok) throw new Error('could not load ' + id + '.wasm');
     return res.arrayBuffer();
+  },
+  fontSource: async () => {
+    const res = await fetch(wasmBase.replace(/wasm\/$/, '') + 'fonts/readex-pro-text.ttf');
+    if (!res.ok) throw new Error('could not load the text font');
+    return res.arrayBuffer();
   }
 });
 
@@ -29,7 +35,7 @@ let records = new Map();
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
-  fetchBytes: async (url) => {
+  fetchBytes: async (url, options = {}) => {
     if (!settings.proxyUrl) {
       let res;
       try {
@@ -39,12 +45,18 @@ const makeIo = () => ({
         e.fatal = true;
         throw e;
       }
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: null };
+      const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null };
     }
-    const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url);
+    const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
     const res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {} });
     if (res.status === 401) {
       const e = new Error('the proxy rejected the access token');
+      e.fatal = true;
+      throw e;
+    }
+    if (res.status === 429 && !res.headers.get('x-upstream-status')) {
+      const e = new Error('the proxy rate limit was reached, wait ' + (res.headers.get('retry-after') || 'a minute') + ' seconds and run again');
       e.fatal = true;
       throw e;
     }
@@ -97,7 +109,7 @@ const handlers = {
     const targets = p.targets.map((t) => ({ ...t }));
     const result = await runHarvest(
       { targets, overrides: {} },
-      { profile: 'launcher', seed: p.seed, mode: 'keep', cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
+      { profile: 'launcher', seed: p.seed, mode: 'keep', faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
       makeIo()
     );
     records = new Map(result.records.map((r) => [r.key, r]));

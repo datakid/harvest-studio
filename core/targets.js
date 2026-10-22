@@ -1,4 +1,17 @@
+import { isHex, tintFromHex } from './color.js';
+
 export const KEY_RE = /^[a-z0-9-]+$/;
+
+const catalogueTint = (app) => {
+  if (isHex(app.color)) return tintFromHex(app.color);
+  if (Array.isArray(app.gradient) && app.gradient.length === 3 && app.gradient.every(isHex)) return app.gradient.map((c) => c.toLowerCase());
+  return null;
+};
+
+const catalogueExtras = (app) => {
+  const tint = catalogueTint(app);
+  return { ...(tint ? { catalogueTint: tint } : {}), ...(app.closed === true ? { closed: true } : {}), ...(typeof app.icon === 'string' ? { faIcon: app.icon } : {}) };
+};
 export const buildTargets = (catalog) => {
   const out = [];
   const categories = catalog && Array.isArray(catalog.categories) ? catalog.categories : [];
@@ -7,9 +20,9 @@ export const buildTargets = (catalog) => {
     for (const app of Array.isArray(cat.apps) ? cat.apps : []) {
       if (!app || typeof app.id !== 'string' || app.id.startsWith('u-')) continue;
       if (Array.isArray(app.variants) && app.variants.length) {
-        for (const v of app.variants) out.push({ key: app.id + '--' + v.id, appId: app.id, variantId: v.id, url: v.url });
+        for (const v of app.variants) out.push({ key: app.id + '--' + v.id, appId: app.id, variantId: v.id, url: v.url, ...catalogueExtras(app) });
       } else if (typeof app.url === 'string') {
-        out.push({ key: app.id, appId: app.id, variantId: null, url: app.url });
+        out.push({ key: app.id, appId: app.id, variantId: null, url: app.url, ...catalogueExtras(app) });
       }
     }
   }

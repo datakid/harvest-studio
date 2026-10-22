@@ -13,6 +13,8 @@ const shots = process.env.SHOTS || null;
 const files = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.png')).map((f) => path.join(fixturesDir, f));
 const site = {
   'https://demo.example.com/': { type: 'text/html', body: Buffer.from('<html><head><link rel="icon" type="image/png" sizes="192x192" href="/icon.png"></head></html>') },
+  'https://text.example.com/': { type: 'text/html', body: Buffer.from('<html><head><link rel="icon" type="image/svg+xml" href="/t.svg"></head></html>') },
+  'https://text.example.com/t.svg': { type: 'image/svg+xml', body: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="12" fill="#1f6feb"/><text x="32" y="46" font-size="40" text-anchor="middle" fill="#fff" font-family="Arial">Ab</text></svg>') },
   'https://demo.example.com/icon.png': { type: 'image/png', body: fs.readFileSync(path.join(fixturesDir, 'dafter.png')) }
 };
 const proxy = createHandler({
@@ -151,6 +153,16 @@ await check('dark theme and arabic layout render without overflow', async () => 
   await shot(page, 'work-dark-ar');
 });
 
+await check('arabic mode: language is declared, names choose their own direction, and the css uses logical properties', async () => {
+  assert.equal(await page.evaluate(() => document.documentElement.lang), 'ar');
+  const dirs = await page.$$eval('.cell .name', (els) => els.map((e) => [e.getAttribute('dir'), getComputedStyle(e).direction]));
+  assert.ok(dirs.length > 0);
+  for (const [attr, computed] of dirs) assert.deepEqual([attr, computed], ['auto', 'ltr']);
+  const css = fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'app.css'), 'utf8') + fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'tokens.css'), 'utf8');
+  const physical = css.split('\n').filter((l) => /(margin|padding|border)-(left|right)|(^|[\s;{])(left|right)\s*:|float\s*:|text-align\s*:\s*(left|right)/.test(l) && !/^pre\.code/.test(l));
+  assert.deepEqual(physical, []);
+});
+
 const single = await open({ width: 1440, height: 900 });
 await single.evaluate(() => {
   localStorage.setItem('hs:prefs', JSON.stringify({ proxyUrl: 'http://localhost:4181/api/fetch' }));
@@ -164,11 +176,35 @@ await check('a single site address is harvested through the proxy', async () => 
   assert.equal(await single.locator('.gallery .cell').count(), 1);
   assert.ok(await single.getByText('Found').count());
   assert.ok(await single.getByText(/png http/).count());
+  await single.locator('.gallery .cell').first().click();
+  const tried = single.locator('.inspector details.attempts');
+  assert.equal(await tried.count(), 1);
+  await tried.locator('summary').click();
+  const row = await tried.locator('li').first().innerText();
+  assert.ok(/used/.test(row) && /png/.test(row) && /demo\.example\.com\/icon\.png/.test(row), row);
   await single.getByRole('button', { name: 'Export' }).click();
   await single.getByRole('radio', { name: 'Favicon pack' }).click();
   const [dl] = await Promise.all([single.waitForEvent('download'), single.getByRole('button', { name: 'Download .zip' }).click()]);
   const names = Object.keys(unzipSync(new Uint8Array(fs.readFileSync(await dl.path()))));
   assert.ok(names.includes('favicon.ico') && names.includes('icon-512.png'));
+});
+await check('a text favicon is drawn in the browser worker with the bundled font', async () => {
+  await single.keyboard.press('Escape');
+  await single.reload();
+  await single.locator('#urls').fill('text.example.com');
+  const font = single.waitForResponse((r) => /fonts\/readex-pro-text\.ttf$/.test(r.url()) && r.status() === 200, { timeout: 120000 });
+  await single.route(/api\/fetch\?url=.*text\.example\.com%2F$/, async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+  await single.click('#go');
+  await single.waitForSelector('[role="progressbar"]', { timeout: 20000 });
+  assert.equal(await single.locator('[role="progressbar"]').getAttribute('aria-valuemin'), '0');
+  assert.ok((await single.locator('[role="progressbar"]').getAttribute('aria-valuenow')) !== null);
+  await font;
+  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.locator('.gallery .cell').first().click();
+  assert.ok(await single.getByText(/svg http/).count());
 });
 await check('a wrong proxy token explains itself', async () => {
   await single.keyboard.press('Escape');
@@ -193,6 +229,18 @@ await check('a json file shows what was found and lets the fields be changed', a
   assert.ok(await single.getByText(/Found 2 in tools/).count());
   await single.locator('.scan select').nth(1).selectOption('');
   assert.ok(await single.getByText(/Found 2 in tools/).count());
+});
+
+await check('names given as language objects follow a language picker in the import panel', async () => {
+  await single.reload();
+  const data = { sites: [{ id: 'alpha', name: { en: 'Alpha', ar: 'ألفا' }, url: 'https://alpha.test' }, { id: 'beta', name: { en: 'Beta', ar: 'بيتا' }, url: 'https://beta.test' }] };
+  await single.setInputFiles('#pick-files', [{ name: 'sites.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)) }]);
+  await single.waitForSelector('#label-lang-0');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
+  await single.locator('#label-lang-0').selectOption('ar');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('ألفا')));
+  await single.locator('#label-lang-0').selectOption('');
+  assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
 });
 
 const phone = await open({ width: 390, height: 844 }, 'dark');

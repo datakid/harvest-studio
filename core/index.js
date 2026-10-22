@@ -13,3 +13,5 @@ export * from './profiles.js';
 export * from './pipeline.js';
 export * from './sources.js';
 export * from './palettes.js';
+export * from './ico.js';
+export * from './head.js';

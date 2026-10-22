@@ -4,7 +4,7 @@ import { normalize, gate } from './pixels.js';
 import { imageToLab, extractGradient, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph } from './glyph.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
-import { readLinks, readBaseHref, candidateGroups, loadHref } from './discover.js';
+import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
 import { applyMode, guardContrast, separateTints, MIN_TINT_SEP, DEFAULT_SEED } from './tints.js';
 import { unpackAtlas, DEFAULT_CELL } from './atlas.js';
 import { buildLauncherExport, buildLegacyExport, stableStringify } from './profiles.js';
@@ -17,11 +17,11 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
-export const fetchRetry = async (io, url) => {
+export const fetchRetry = async (io, url, options) => {
   let last;
   for (let i = 0; i < 3; i++) {
     try {
-      return await io.fetchBytes(url);
+      return await io.fetchBytes(url, options);
     } catch (e) {
       last = e;
       if (e && e.fatal) throw e;
@@ -46,7 +46,7 @@ const finishFrom = async (bytes, source, result) => {
 
 export const processTarget = async (t, ctx) => {
   const { io, overrides = {}, local = false } = ctx;
-  const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false };
+  const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
   if (!KEY_RE.test(t.key)) {
     result.error = 'key is not safe for a file name';
     return result;
@@ -103,49 +103,62 @@ export const processTarget = async (t, ctx) => {
 
   const errors = [];
   let html = '';
+  let pageOk = false;
   let base = t.url;
   try {
-    const res = await fetchRetry(io, t.url);
+    const res = await fetchRetry(io, t.url, { head: true });
     base = res.url || t.url;
     if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge') {
       result.status = 'blocked';
       result.error = 'HTTP ' + res.status + ' challenge or protection page';
+      result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
       return result;
     }
     html = text(res.bytes);
+    pageOk = res.ok;
   } catch (e) {
     errors.push('page: ' + errText(e));
+    result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
   }
   base = readBaseHref(html, base);
   const links = readLinks(html);
   if (html && !links.length && CHALLENGE_RE.test(html)) {
     result.status = 'blocked';
     result.error = 'challenge page without icon links';
+    result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
     return result;
   }
-  const fetchIo = { fetchBytes: (u) => fetchRetry(io, u) };
+  const fetchIo = { fetchBytes: (u) => fetchRetry(io, u), attempt: (a) => result.attempts.push(a) };
   let lastBad = null;
-  for (const group of candidateGroups(links, base, errors, fetchIo)) {
+  const tried = new Set();
+  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk })) {
     for (const c of await group()) {
+      if (tried.has(c.href)) continue;
+      tried.add(c.href);
+      const at = { type: c.type, href: short(c.href) };
       try {
         const bytes = await loadHref(c.href, fetchIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
         if (!ext) throw new Error('not an image');
-        const { img, srcWidth, original } = await normalize(bytes, ext);
+        const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
+        if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
         if (bad) {
-          lastBad = { bad, source: { type: c.type, href: short(c.href) } };
+          lastBad = { bad, source: at };
           errors.push(c.type + ': ' + bad);
+          result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
-        result.source = { type: c.type, href: short(c.href) };
+        result.attempts.push({ ...at, status: 'used', reason: null });
+        result.source = at;
         result.image = img;
         result.original = original;
         result.status = 'found';
         return result;
       } catch (e) {
         errors.push(c.type + ': ' + errText(e));
+        result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
       }
     }
   }
@@ -267,16 +280,18 @@ export const runHarvest = async (input, options = {}, io) => {
   const local = !!options.local;
 
   let done = 0;
+  const only = options.only ? new Set(options.only) : null;
   const results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
-    const r = await processTarget(t, { io, overrides, local });
+    const r = only && !only.has(t.key) ? { key: t.key, url: t.url, status: 'skipped' } : await processTarget(t, { io, overrides, local });
     progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status });
     return r;
   });
 
   const records = [];
   const byKey = new Map();
+  const targetOf = new Map(targets.map((t) => [t.key, t]));
   const recordOf = (r) => {
-    const rec = { key: r.key, appId: targets.find((t) => t.key === r.key).appId, status: r.status, checkedAt: now, hash: null, image: null, glyphImage: null, trace: null, tint: null, sourceTint: null, locked: false, palette: null, seed: null, shape: 'default' };
+    const rec = { key: r.key, appId: targetOf.get(r.key).appId, status: r.status, checkedAt: now, hash: null, image: null, glyphImage: null, trace: null, tint: null, sourceTint: null, locked: false, palette: null, seed: null, shape: 'default' };
     return rec;
   };
   const traceQueue = [];
@@ -293,9 +308,11 @@ export const runHarvest = async (input, options = {}, io) => {
       } catch (e) {
         r.analysisError = errText(e);
       }
-      rec.base = analysis.gradient;
-      rec.sourceTint = analysis.gradient;
-      rec.tint = analysis.gradient;
+      const catalogue = !analysis.gradient && !legacy ? targetOf.get(r.key).catalogueTint || null : null;
+      rec.base = analysis.gradient || catalogue;
+      rec.sourceTint = analysis.gradient || catalogue;
+      rec.tint = analysis.gradient || catalogue;
+      if (catalogue) rec.tintSource = 'catalogue';
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
@@ -315,11 +332,18 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.sourceTint = prev.sourceTint;
       rec.locked = prev.locked;
       rec.palette = prev.palette;
+      rec.seed = prev.seed;
       rec.shape = prev.shape || 'default';
-      rec.status = r.status === 'blocked' ? 'blocked' : 'stale';
+      rec.status = r.status === 'skipped' ? prev.status : r.status === 'blocked' ? 'blocked' : 'stale';
       rec.kept = true;
+    } else if (r.status === 'skipped') {
+      continue;
     } else if (r.status === 'blocked') {
       rec.status = 'blocked';
+    } else if (options.faFallback && r.status === 'notfound' && targetOf.get(r.key).faIcon) {
+      rec.status = 'override';
+      rec.fa = targetOf.get(r.key).faIcon;
+      r.source = { type: 'fa-fallback', href: rec.fa };
     } else {
       continue;
     }
@@ -389,7 +413,8 @@ export const runHarvest = async (input, options = {}, io) => {
       stale: count('stale'),
       blocked: count('blocked'),
       default: count('default'),
-      notfound: results.filter((r) => !byKey.has(r.key)).length
+      notfound: results.filter((r) => !byKey.has(r.key) && r.status !== 'skipped').length,
+      ...(only ? { skipped: results.filter((r) => r.status === 'skipped').length } : {})
     },
     colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
@@ -409,7 +434,11 @@ export const runHarvest = async (input, options = {}, io) => {
         tint: rec ? rec.tint : null,
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
         trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
-        why: why.get(r.key) || null
+        why: why.get(r.key) || null,
+        ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),
+        ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
+        ...(rec && rec.fa ? { fa: rec.fa } : {}),
+        ...(targetOf.get(r.key).closed ? { closed: true } : {})
       };
     })
   };

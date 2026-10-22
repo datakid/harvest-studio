@@ -96,7 +96,7 @@ const snapshot = () => ({
   cell: state.cell,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
-  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null })),
+  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
   records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
 });
 
@@ -164,6 +164,7 @@ const renderBar = () => {
           prefs.lang = getLang() === 'ar' ? 'en' : 'ar';
           setLang(prefs.lang);
           save();
+          for (const j of state.pending.jsons) rescan(j, j.scan.fields || {}, langOf(j));
           renderAll();
         }
       },
@@ -194,6 +195,8 @@ const pendingChips = () => {
   return chips.length ? h('div', { class: 'chips' }, chips) : null;
 };
 
+const langOf = (json) => json.lang || getLang();
+
 const scanPanel = (json, index) => {
   const s = json.scan;
   const panel = h('div', { class: 'scan' });
@@ -218,8 +221,8 @@ const scanPanel = (json, index) => {
                 delete f.urlField;
                 delete f.iconField;
                 delete f.nameField;
-                rescan(json, { collection: v });
-              } else rescan(json, f);
+                rescan(json, { collection: v }, langOf(json));
+              } else rescan(json, f, langOf(json));
               renderMain();
             }
           },
@@ -238,7 +241,29 @@ const scanPanel = (json, index) => {
       )
     );
   }
-  panel.append(h('ul', null, s.targets.slice(0, 4).map((x) => h('li', null, h('b', null, x.name || x.key), x.url ? '  ' + x.url : ''))));
+  if (s.languages && s.languages.length > 1) {
+    panel.append(
+      h(
+        'div',
+        { class: 'field' },
+        h('label', { for: 'label-lang-' + index }, t('labelLanguage')),
+        h(
+          'select',
+          {
+            id: 'label-lang-' + index,
+            onChange: (e) => {
+              json.lang = e.target.value || null;
+              rescan(json, s.fields || {}, langOf(json));
+              renderMain();
+            }
+          },
+          h('option', { value: '', selected: !json.lang }, t('labelLanguageAuto')),
+          s.languages.map((l) => h('option', { value: l, selected: l === json.lang }, l))
+        )
+      )
+    );
+  }
+  panel.append(h('ul', null, s.targets.slice(0, 4).map((x) => h('li', null, h('b', { dir: 'auto' }, x.name || x.key), x.url ? h('span', { dir: 'ltr', class: 'href' }, '  ' + x.url) : null))));
   panel.append(h('div', { class: 'row' }, h('button', { class: 'btn quiet', type: 'button', onClick: () => { state.pending.jsons.splice(index, 1); renderMain(); } }, icon('trash', { size: 16 }), t('close'))));
   return panel;
 };
@@ -299,7 +324,7 @@ const addFiles = async (files) => {
     if (BUNDLE_RE.test(f.name)) state.pending.bundle.files.set(f.name, f);
     else if (isJsonFile(f)) {
       try {
-        const j = await readJsonFile(f);
+        const j = await readJsonFile(f, getLang());
         if (looksLikeManifest(j.data)) state.pending.bundle.manifest = j;
         else state.pending.jsons.push(j);
       } catch {
@@ -327,7 +352,7 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined }, {
+    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback }, {
       onProgress: (p) => {
         state.progress = p;
         updateProgress();
@@ -360,6 +385,8 @@ const updateProgress = () => {
   const share = phase === 'trace' ? 0.5 + (done / total) * 0.5 : (done / total) * 0.5;
   bar.style.width = Math.round(share * 100) + '%';
   text.textContent = t(phase === 'trace' ? 'tracing' : 'fetching', { done, total });
+  bar.parentElement.setAttribute('aria-valuenow', String(Math.round(share * 100)));
+  bar.parentElement.setAttribute('aria-valuetext', text.textContent);
 };
 
 const ago = (ms) => {
@@ -488,6 +515,7 @@ const renderIntake = () => {
         pendingChips(),
         manifestPanel(),
         state.pending.jsons.map(scanPanel),
+        state.pending.jsons.some((j) => j.scan.kind === 'launcher') ? h('label', { class: 'check', id: 'fa-fallback' }, h('input', { type: 'checkbox', checked: prefs.faFallback, onChange: (e) => { prefs.faFallback = e.target.checked; save(); } }), t('faFallback')) : null,
         state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null,
         recentsPanel()
       )
@@ -509,7 +537,7 @@ const renderBusy = () =>
   h(
     'section',
     { class: 'work', style: { display: 'block' } },
-    h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
+    h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress', role: 'progressbar', 'aria-label': t('working'), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
     h('div', { class: 'stage' }, h('ul', { class: 'gallery' }, Array.from({ length: state.ghosts }, () => h('li', null, h('div', { class: 'cell' }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' '))))))
   );
 
@@ -524,7 +552,7 @@ const cellEl = (rec, i) => {
       'button',
       { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), onClick: () => select(rec.key) },
       rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: { animation: 'none' } }),
-      h('span', { class: 'name' }, rec.name),
+      h('span', { class: 'name', dir: 'auto' }, rec.name),
       flag ? h('span', { class: 'flag ' + flag, title: reasonOf(rec) }, icon('warn', { size: 11, stroke: 2.4 })) : null
     )
   );
@@ -736,7 +764,7 @@ const selectedPanel = () => {
   if (!rec) return h('section', { class: 'panel' }, h('h2', null, t('icon')), h('p', { class: 'hint-text' }, t('noSelection')));
   const item = state.items.get(rec.key) || {};
   const panel = h('section', { class: 'panel' }, h('h2', null, t('icon')));
-  panel.append(h('div', { class: 'sel-head' }, rec.hasImage ? tile(rec, { size: 72 }) : h('span', { class: 'tile-art ghost', style: { '--size': '72px', animation: 'none' } }), h('div', null, h('h3', null, rec.name), h('small', null, rec.key))));
+  panel.append(h('div', { class: 'sel-head' }, rec.hasImage ? tile(rec, { size: 72 }) : h('span', { class: 'tile-art ghost', style: { '--size': '72px', animation: 'none' } }), h('div', null, h('h3', { dir: 'auto' }, rec.name), h('small', { dir: 'ltr' }, rec.key))));
   if (rec.hasImage) {
     const pickHex = (rec.tint && rec.tint[0]) || '#8c95b6';
     panel.append(
@@ -771,10 +799,27 @@ const selectedPanel = () => {
       h('dd', null, glyphLabel),
       h('dt', null, t('source')),
       h('dd', null, rec.faviconUrl ? h('span', { class: 'favicon-chip', style: { display: 'inline-grid', 'vertical-align': 'middle', 'margin-inline-end': '8px' } }, h('img', { src: rec.faviconUrl, alt: '' })) : null, src)
-    )
+    ),
+    attemptsList(item.attempts)
   );
   return panel;
 };
+
+const attemptsList = (attempts) =>
+  attempts && attempts.length
+    ? h(
+        'details',
+        { class: 'attempts' },
+        h('summary', null, t('attempts', { n: attempts.length })),
+        h(
+          'ol',
+          null,
+          ...attempts.map((a) =>
+            h('li', null, h('span', { class: 'pill' + (a.status === 'used' ? ' ok' : ' warn') }, t('attempt' + a.status[0].toUpperCase() + a.status.slice(1))), ' ', h('b', null, a.type), ' ', h('span', { class: 'href', dir: 'ltr' }, a.href), a.reason ? h('span', { class: 'why' }, ' ' + a.reason) : null)
+          )
+        )
+      )
+    : null;
 
 const renderInspector = () => {
   const el = document.getElementById('inspector');
@@ -791,7 +836,7 @@ const replaceImage = async (rec, file) => {
     const fresh = decodeRecord(payload, { name: rec.name });
     fresh.name = rec.name;
     state.records.set(rec.key, fresh);
-    state.items.set(rec.key, { ...(state.items.get(rec.key) || {}), source: { type: 'file', href: file.name }, error: null, name: rec.name });
+    state.items.set(rec.key, { ...(state.items.get(rec.key) || {}), source: { type: 'file', href: file.name }, error: null, attempts: [], name: rec.name });
     state.dirty = true;
     applyColours();
     renderMain();

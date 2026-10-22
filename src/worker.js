@@ -12,6 +12,7 @@ import {
   buildCustomExport,
   buildFaviconPack,
   zipFiles,
+  stableStringify,
   readHead,
   errText,
   DEFAULT_CELL
@@ -32,6 +33,7 @@ configureRuntime({
 });
 
 let records = new Map();
+let lastReport = null;
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
@@ -113,6 +115,7 @@ const handlers = {
       makeIo()
     );
     records = new Map(result.records.map((r) => [r.key, r]));
+    lastReport = result.report;
     const out = [];
     for (const r of result.records) out.push(await serialise(r));
     const transfer = [];
@@ -216,6 +219,7 @@ const handlers = {
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
       const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed });
+      if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
       const zip = zipFiles(exp.files, 'icons/');
       return { value: { gate: exp.gate, stats: exp.stats, zip, files: Object.keys(exp.files) }, transfer: [zip.buffer] };
     }

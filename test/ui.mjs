@@ -103,6 +103,10 @@ await check('launcher export passes the gate and zips the contract files', async
   assert.ok(names.some((n) => /^icons\/atlas\.[0-9a-f]{8}\.webp$/.test(n)), names.join());
   assert.ok(names.some((n) => /^icons\/glyphs\.[0-9a-f]{8}\.svg$/.test(n)));
   assert.ok(names.includes('icons/manifest.v2.json'));
+  assert.ok(names.includes('icons/harvest-report.json'));
+  const report = JSON.parse(new TextDecoder().decode(unzipSync(new Uint8Array(bytes))['icons/harvest-report.json']));
+  assert.equal(report.items.length, files.length);
+  assert.match(report.note, /last harvest/);
 });
 
 await check('browser worker export matches the Node run (manifest and atlas pixels)', async () => {
@@ -241,6 +245,17 @@ await check('names given as language objects follow a language picker in the imp
   assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('ألفا')));
   await single.locator('#label-lang-0').selectOption('');
   assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
+});
+
+const noProxy = await open({ width: 1200, height: 800 });
+await check('a site that cannot be reached without a proxy is named in a notice next to the images that worked', async () => {
+  await noProxy.setInputFiles('#pick-files', files.slice(0, 2));
+  await noProxy.waitForSelector('.chip');
+  await noProxy.locator('#urls').fill('demo.example.com');
+  await noProxy.click('#go');
+  await noProxy.waitForSelector('.toast', { timeout: 120000 });
+  assert.match(await noProxy.locator('.toast').first().innerText(), /1 sites were not reached because no fetch proxy is set/);
+  assert.equal(await noProxy.locator('.gallery .cell').count(), 3);
 });
 
 const phone = await open({ width: 390, height: 844 }, 'dark');

@@ -369,6 +369,8 @@ const startHarvest = async () => {
     state.cell = null;
     adopt(result, (k) => (names.get(k) || {}).name || k);
     enterWork();
+    const unreached = result.items.filter((i) => i.error && /needs the fetch proxy/.test(i.error)).length;
+    if (unreached) toast(t('proxyMissingSome', { n: unreached }));
   } catch (e) {
     state.stage = 'intake';
     const why = e.message || String(e);

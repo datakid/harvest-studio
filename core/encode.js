@@ -31,7 +31,7 @@ export const encodeIco = async (img, sizes = [16, 32, 48]) => {
   return encodeIcoFrames(images);
 };
 
-export const encodeImage = async (img, { format = 'png', quality = 90, lossless = false, effort = 6 } = {}) => {
+export const encodeImage = async (img, { format = 'png', quality = 90, lossless = false, effort = 5 } = {}) => {
   if (format === 'png') return encodePng(img);
   if (format === 'webp') return lossless ? encodeWebp(img, { lossless: 1, method: effort, exact: 0 }) : encodeWebp(img, { quality, method: effort });
   if (format === 'avif') return encodeAvif(img, lossless ? { lossless: true } : { quality, qualityAlpha: 100 });

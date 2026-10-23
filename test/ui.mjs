@@ -107,6 +107,8 @@ await check('launcher export passes the gate and zips the contract files', async
   const report = JSON.parse(new TextDecoder().decode(unzipSync(new Uint8Array(bytes))['icons/harvest-report.json']));
   assert.equal(report.items.length, files.length);
   assert.match(report.note, /last harvest/);
+  assert.ok(report.atlas.atlasBytes > 0);
+  assert.equal(typeof report.gate.ok, 'boolean');
 });
 
 await check('browser worker export matches the Node run (manifest and atlas pixels)', async () => {
@@ -256,6 +258,22 @@ await check('a site that cannot be reached without a proxy is named in a notice 
   await noProxy.waitForSelector('.toast', { timeout: 120000 });
   assert.match(await noProxy.locator('.toast').first().innerText(), /1 sites were not reached because no fetch proxy is set/);
   assert.equal(await noProxy.locator('.gallery .cell').count(), 3);
+});
+
+await check('the shipped catalogue harvests in one click with no proxy, protocols included', async () => {
+  const fresh = await open({ width: 1200, height: 800 });
+  await fresh.waitForSelector('#harvest-catalogue');
+  assert.match(await fresh.locator('#harvest-catalogue').innerText(), /32/);
+  await fresh.click('#harvest-catalogue');
+  await fresh.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 32, null, { timeout: 120000 });
+  const state = await fresh.evaluate(() => {
+    const items = [...window.__studio.state.items.values()];
+    const p = items.find((i) => i.key === 'protocols');
+    return { total: items.length, found: items.filter((i) => i.status === 'found').length, protocols: p && p.status, source: p && p.source && p.source.type };
+  });
+  assert.deepEqual(state, { total: 32, found: 32, protocols: 'found', source: 'bundled' });
+  assert.equal(await fresh.locator('.toast').count(), 0);
 });
 
 const phone = await open({ width: 390, height: 844 }, 'dark');

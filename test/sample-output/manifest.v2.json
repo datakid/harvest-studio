@@ -1,14 +1,14 @@
 {
   "atlas": {
     "cell": 128,
-    "file": "icons/atlas.2d7f2d93.webp",
+    "file": "icons/atlas.6b81ef06.webp",
     "height": 768,
     "width": 768
   },
-  "generatedAt": "2026-10-21T20:12:49.882Z",
+  "generatedAt": "2026-10-23T04:56:51.145Z",
   "glyphAtlas": {
     "cell": 128,
-    "file": "icons/glyph-atlas.d38a84a3.webp",
+    "file": "icons/glyph-atlas.0497b0ac.webp",
     "height": 256,
     "width": 256
   },
@@ -18,7 +18,7 @@
   "hash": "6814243a",
   "icons": {
     "alt": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 0
@@ -35,7 +35,7 @@
       "tint": null
     },
     "criteria-builder--meridian": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 0
@@ -64,7 +64,7 @@
       ]
     },
     "criteria-builder--rubric": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 0
@@ -90,7 +90,7 @@
       ]
     },
     "dafter": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 384,
         "y": 0
@@ -111,7 +111,7 @@
       ]
     },
     "draw": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 512,
         "y": 0
@@ -132,7 +132,7 @@
       ]
     },
     "drug-list--free": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 640,
         "y": 0
@@ -158,7 +158,7 @@
       ]
     },
     "drug-list--full": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 128
@@ -184,7 +184,7 @@
       ]
     },
     "entity-tracker": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 128
@@ -210,7 +210,7 @@
       ]
     },
     "id-dates--contacts": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 128
@@ -236,7 +236,7 @@
       ]
     },
     "id-dates--id": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 384,
         "y": 128
@@ -262,7 +262,7 @@
       ]
     },
     "index-builder": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 512,
         "y": 128
@@ -288,7 +288,7 @@
       ]
     },
     "ledger-form--folio": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 640,
         "y": 128
@@ -312,7 +312,7 @@
       ]
     },
     "ledger-form--tally": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 256
@@ -338,7 +338,7 @@
       ]
     },
     "paid-calculator--calc": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 256
@@ -364,7 +364,7 @@
       ]
     },
     "paid-calculator--daleel": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 256
@@ -385,7 +385,7 @@
       ]
     },
     "parser": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 384,
         "y": 256
@@ -411,7 +411,7 @@
       ]
     },
     "pharmacy-tools--bugvert": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 512,
         "y": 256
@@ -437,7 +437,7 @@
       ]
     },
     "pharmacy-tools--pillbug": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 640,
         "y": 256
@@ -463,7 +463,7 @@
       ]
     },
     "plan-maker--express": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 384
@@ -489,7 +489,7 @@
       ]
     },
     "plan-maker--full": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 384
@@ -518,7 +518,7 @@
       ]
     },
     "prep--floe": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 384
@@ -544,7 +544,7 @@
       ]
     },
     "prep--prep": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 384,
         "y": 384
@@ -570,7 +570,7 @@
       ]
     },
     "protocols": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 512,
         "y": 384
@@ -596,7 +596,7 @@
       ]
     },
     "qisma-mizan--express": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 640,
         "y": 384
@@ -622,7 +622,7 @@
       ]
     },
     "qisma-mizan--full": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 512
@@ -648,7 +648,7 @@
       ]
     },
     "roi--express": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 512
@@ -674,7 +674,7 @@
       ]
     },
     "roi--full": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 512
@@ -703,7 +703,7 @@
       ]
     },
     "solver": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 384,
         "y": 512
@@ -729,7 +729,7 @@
       ]
     },
     "survival-mirror": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 512,
         "y": 512
@@ -755,7 +755,7 @@
       ]
     },
     "text-tools--text": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 640,
         "y": 512
@@ -781,7 +781,7 @@
       ]
     },
     "text-tools--weft": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 0,
         "y": 640
@@ -807,7 +807,7 @@
       ]
     },
     "to-do": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 128,
         "y": 640
@@ -833,7 +833,7 @@
       ]
     },
     "workspace": {
-      "checkedAt": "2026-10-21T20:12:49.882Z",
+      "checkedAt": "2026-10-23T04:56:51.145Z",
       "favicon": {
         "x": 256,
         "y": 640

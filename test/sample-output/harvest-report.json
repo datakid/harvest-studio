@@ -30,12 +30,12 @@
     "workspace"
   ],
   "atlas": {
-    "atlasBytes": 83988,
+    "atlasBytes": 87216,
     "atlasMode": "lossy-q90",
     "cell": 128,
     "cellDefaulted": true,
     "count": 33,
-    "glyphAtlasBytes": 12970,
+    "glyphAtlasBytes": 12860,
     "glyphAtlasMode": "lossless",
     "rejectedGlyphs": 4,
     "spriteBytes": 15917,
@@ -111,7 +111,7 @@
     "failures": [],
     "ok": true
   },
-  "generatedAt": "2026-10-21T20:12:49.882Z",
+  "generatedAt": "2026-10-23T04:56:51.145Z",
   "items": [
     {
       "closed": true,

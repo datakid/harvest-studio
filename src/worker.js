@@ -18,6 +18,7 @@ import {
   DEFAULT_CELL
 } from '../core/index.js';
 
+const FETCH_TIMEOUT = 20000;
 let wasmBase = './wasm/';
 configureRuntime({
   wasmSource: async (id) => {
@@ -34,6 +35,7 @@ configureRuntime({
 
 let records = new Map();
 let lastReport = null;
+let knownIndex = null;
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
@@ -41,9 +43,9 @@ const makeIo = () => ({
     if (!settings.proxyUrl) {
       let res;
       try {
-        res = await fetch(url, { redirect: 'follow' });
-      } catch {
-        const e = new Error('needs the fetch proxy: this site does not allow direct browser access');
+        res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+      } catch (err) {
+        const e = new Error(err && err.name === 'TimeoutError' ? 'timed out after ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'needs the fetch proxy: this site does not allow direct browser access');
         e.fatal = true;
         throw e;
       }
@@ -51,7 +53,14 @@ const makeIo = () => ({
       return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null };
     }
     const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
-    const res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {} });
+    let res;
+    try {
+      res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+    } catch (err) {
+      const e = new Error(err && err.name === 'TimeoutError' ? 'the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'could not reach the proxy');
+      e.fatal = true;
+      throw e;
+    }
     if (res.status === 401) {
       const e = new Error('the proxy rejected the access token');
       e.fatal = true;
@@ -73,6 +82,14 @@ const makeIo = () => ({
     return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
   },
   readLocal: async () => null,
+  readKnown: async (key) => {
+    const base = wasmBase.replace(/wasm\/$/, '') + 'known/';
+    knownIndex ||= fetch(base + 'index.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    const file = (await knownIndex)[key];
+    if (!file) return null;
+    const res = await fetch(base + file);
+    return res.ok ? { bytes: new Uint8Array(await res.arrayBuffer()), file: 'known/' + file } : null;
+  },
   readOverride: async () => {
     throw new Error('overrides are not available in the browser');
   },
@@ -111,7 +128,7 @@ const handlers = {
     const targets = p.targets.map((t) => ({ ...t }));
     const result = await runHarvest(
       { targets, overrides: {} },
-      { profile: 'launcher', seed: p.seed, mode: 'keep', faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
+      { profile: 'launcher', seed: p.seed, mode: 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
       makeIo()
     );
     records = new Map(result.records.map((r) => [r.key, r]));
@@ -219,7 +236,7 @@ const handlers = {
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
       const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed });
-      if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
+      if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, atlas: { cell: lastReport.atlas.cell, cellDefaulted: lastReport.atlas.cellDefaulted, ...exp.stats }, gate: { ok: exp.gate.ok, failures: exp.gate.failures }, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
       const zip = zipFiles(exp.files, 'icons/');
       return { value: { gate: exp.gate, stats: exp.stats, zip, files: Object.keys(exp.files) }, transfer: [zip.buffer] };
     }

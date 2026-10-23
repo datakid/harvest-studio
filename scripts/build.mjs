@@ -60,6 +60,15 @@ for (const sub of ['arabic', 'latin', 'latin-ext']) {
 
 await fs.copyFile(studioRequire.resolve('@expo-google-fonts/readex-pro/400Regular/ReadexPro_400Regular.ttf'), path.join(dist, 'fonts', 'readex-pro-text.ttf'));
 
+await fs.mkdir(path.join(dist, 'known'), { recursive: true });
+const knownIndex = {};
+for (const f of (await fs.readdir(path.join(root, 'config', 'known-icons'))).sort()) {
+  await fs.copyFile(path.join(root, 'config', 'known-icons', f), path.join(dist, 'known', f));
+  knownIndex[f.replace(/\.[a-z0-9]+$/, '')] = f;
+}
+await fs.writeFile(path.join(dist, 'known', 'index.json'), JSON.stringify(knownIndex));
+await fs.copyFile(path.join(root, 'config', 'catalogue.json'), path.join(dist, 'catalogue.json'));
+
 let css = '';
 for (const name of ['tokens.css', 'app.css']) css += (await fs.readFile(path.join(root, 'src', name), 'utf8')) + '\n';
 await fs.writeFile(path.join(dist, 'app.css'), css);

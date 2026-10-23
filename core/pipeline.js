@@ -44,6 +44,25 @@ const finishFrom = async (bytes, source, result) => {
   result.source = source;
 };
 
+const useKnown = async (io, r) => {
+  let hit;
+  try {
+    hit = await io.readKnown(r.key);
+  } catch {
+    hit = null;
+  }
+  if (!hit) return;
+  const source = { type: 'bundled', href: hit.file };
+  try {
+    await finishFrom(hit.bytes, source, r);
+    r.status = 'found';
+    r.error = null;
+    r.attempts.push({ ...source, status: 'used', reason: 'live fetch failed, using the copy shipped with the app' });
+  } catch (e) {
+    r.attempts.push({ ...source, status: 'failed', reason: errText(e) });
+  }
+};
+
 export const processTarget = async (t, ctx) => {
   const { io, overrides = {}, local = false } = ctx;
   const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
@@ -297,6 +316,7 @@ export const runHarvest = async (input, options = {}, io) => {
   const traceQueue = [];
   for (const r of results) {
     const prev = previous.prev.get(r.key) || null;
+    if (!local && !prev && io.readKnown && !r.image && !r.fa && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
     const rec = recordOf(r);
     if (r.image) {
       rec.image = r.image;
@@ -399,7 +419,7 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   const sorted = [...records].sort((a, b) => (a.key < b.key ? -1 : 1));
-  const exported = legacy ? await buildLegacyExport(sorted, { generatedAt: now }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed });
+  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed });
 
   const count = (s) => results.filter((r) => (byKey.get(r.key) ? byKey.get(r.key).status : r.status) === s).length;
   const report = {
@@ -418,7 +438,7 @@ export const runHarvest = async (input, options = {}, io) => {
     },
     colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
-    gate: { ok: exported.gate.ok, failures: exported.gate.failures },
+    gate: options.preview ? null : { ok: exported.gate.ok, failures: exported.gate.failures },
     defaults: [...flagged.keys()],
     similarPalette: [...palette.keys()],
     adjusted,

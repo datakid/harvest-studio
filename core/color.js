@@ -1,7 +1,11 @@
-export const srgbToLin = (c) => {
+const curve = (c) => {
   c /= 255;
   return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 };
+
+const LIN = Float64Array.from({ length: 256 }, (_, i) => curve(i));
+
+export const srgbToLin = (c) => (Number.isInteger(c) && c >= 0 && c <= 255 ? LIN[c] : curve(c));
 
 export const linToSrgb = (c) => {
   const v = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;

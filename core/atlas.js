@@ -24,12 +24,17 @@ export const packAtlas = async (items, cell = DEFAULT_CELL) => {
   return { image, positions, width: image.width, height: image.height, cols, rows, cell };
 };
 
+const LOSSLESS_SLACK = 1.3;
+
 export const encodeAtlas = async (image, limit = ATLAS_LIMIT) => {
-  const lossless = await encodeWebp(image, { lossless: 1, method: 6, exact: 0 });
-  if (lossless.length <= limit) return { bytes: lossless, mode: 'lossless', fits: true };
+  const probe = await encodeWebp(image, { lossless: 1, method: 0, exact: 0 });
+  if (probe.length <= limit * LOSSLESS_SLACK) {
+    const lossless = await encodeWebp(image, { lossless: 1, method: 4, exact: 0 });
+    if (lossless.length <= limit) return { bytes: lossless, mode: 'lossless', fits: true };
+  }
   let last = null;
   for (const q of QUALITY_STEPS) {
-    const bytes = await encodeWebp(image, { quality: q, method: 6, alpha_quality: 100 });
+    const bytes = await encodeWebp(image, { quality: q, method: 5, alpha_quality: 100 });
     last = { bytes, mode: 'lossy-q' + q, fits: bytes.length <= limit };
     if (last.fits) return last;
   }

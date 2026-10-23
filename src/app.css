@@ -210,3 +210,4 @@ pre.code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(-
 .recent .dots { display: inline-flex; }
 .recent .dots i { width: 14px; height: 14px; border-radius: 50%; margin-inline-start: -4px; border: 2px solid var(--bg); }
 .recent .dots i:first-child { margin-inline-start: 0; }
+.catalogue { width: 100%; justify-content: center; margin-block-end: 4px; }

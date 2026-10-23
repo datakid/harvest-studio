@@ -3,6 +3,7 @@ import { t, setLang, getLang } from './i18n.js';
 import { loadPrefs, savePrefs, loadToken, saveToken } from './prefs.js';
 import { createClient } from './worker-client.js';
 import { recolour, randomSeed, setManualColour, effectiveTheme, tileColours, requiredPatch } from './colour.js';
+import { scanJson } from '../core/sources.js';
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
 import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED } from '../core/tints.js';
@@ -24,6 +25,7 @@ const state = {
   records: new Map(),
   order: [],
   items: new Map(),
+  catalogue: null,
   selected: null,
   seed: DEFAULT_SEED,
   progress: null,
@@ -502,6 +504,7 @@ const renderIntake = () => {
       h(
         'div',
         { class: 'intake' },
+        catalogueButton(),
         h(
           'form',
           { class: 'field', onSubmit: (e) => { e.preventDefault(); startHarvest(); } },
@@ -527,6 +530,18 @@ const renderIntake = () => {
   hero.querySelector('textarea').value = urlText;
   return hero;
 };
+
+const harvestCatalogue = () => {
+  const c = state.catalogue;
+  if (!c) return;
+  state.pending.jsons = [{ name: 'catalogue.json', data: c.data, scan: scanJson(c.data, {}, getLang()) }];
+  startHarvest();
+};
+
+const catalogueButton = () =>
+  state.catalogue
+    ? h('button', { class: 'btn primary catalogue', id: 'harvest-catalogue', type: 'button', onClick: harvestCatalogue }, icon('folder', { size: 16 }), t('harvestCatalogue', { n: state.catalogue.count }))
+    : null;
 
 const refreshHarvestLabel = () => {
   const go = document.getElementById('go');
@@ -986,6 +1001,16 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 applyCorners();
 renderAll();
 window.__studio = { state, client, prefs };
+fetch('./catalogue.json')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((data) => {
+    const scan = data ? scanJson(data) : null;
+    if (scan && scan.kind === 'launcher') {
+      state.catalogue = { data, count: scan.count };
+      if (state.stage === 'intake') renderMain();
+    }
+  })
+  .catch(() => {});
 listProjects().then((list) => {
   state.projects = list;
   if (state.stage === 'intake') renderMain();

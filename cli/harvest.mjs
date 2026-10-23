@@ -8,6 +8,7 @@ import { runHarvest, buildTargets, extrasToTargets, mergeTargets, errText, RASTE
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
 const repoRoot = process.cwd();
+const knownDir = path.join(studioDir, 'config', 'known-icons');
 
 const parseArgs = (argv) => {
   const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null };
@@ -81,6 +82,16 @@ const main = async () => {
       for (const ext of RASTER_EXT) {
         try {
           return { bytes: new Uint8Array(await fs.readFile(path.join(args.from, key + '.' + ext))), file: key + '.' + ext };
+        } catch (e) {
+          if (e.code !== 'ENOENT') throw e;
+        }
+      }
+      return null;
+    },
+    readKnown: async (key) => {
+      for (const ext of RASTER_EXT) {
+        try {
+          return { bytes: new Uint8Array(await fs.readFile(path.join(knownDir, key + '.' + ext))), file: 'known-icons/' + key + '.' + ext };
         } catch (e) {
           if (e.code !== 'ENOENT') throw e;
         }

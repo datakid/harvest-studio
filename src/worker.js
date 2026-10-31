@@ -14,6 +14,7 @@ import {
   zipFiles,
   stableStringify,
   readHead,
+  urlIdentity,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
@@ -36,6 +37,7 @@ configureRuntime({
 let records = new Map();
 let lastReport = null;
 let knownIndex = null;
+let knownUrls = null;
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
@@ -76,16 +78,19 @@ const makeIo = () => ({
       try {
         why = (await res.json()).error || why;
       } catch {}
-      throw new Error('proxy: ' + why);
+      const e = new Error('proxy: ' + why);
+      if (res.status === 504) e.timeout = true;
+      throw e;
     }
     const upstream = Number(res.headers.get('x-upstream-status')) || res.status;
     return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
   },
   readLocal: async () => null,
-  readKnown: async (key) => {
+  readKnown: async (key, url) => {
     const base = wasmBase.replace(/wasm\/$/, '') + 'known/';
     knownIndex ||= fetch(base + 'index.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const file = (await knownIndex)[key];
+    knownUrls ||= fetch(base + 'urls.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    const file = (await knownIndex)[key] || (url && (await knownUrls)[urlIdentity(url)]);
     if (!file) return null;
     const res = await fetch(base + file);
     return res.ok ? { bytes: new Uint8Array(await res.arrayBuffer()), file: 'known/' + file } : null;
@@ -206,6 +211,7 @@ const handlers = {
     const r = await processTarget(target, { io: makeIo(), overrides: {}, local: false });
     if (!r.image) throw new Error(r.error || 'not a usable image');
     const analysis = await analyzeIcon(r.image);
+    const tint = analysis.gradient || analysis.accent;
     const prev = records.get(key) || { key, appId };
     const rec = {
       ...prev,
@@ -215,9 +221,9 @@ const handlers = {
       image: r.image,
       original: r.original || null,
       hash: await pixelHash(r.image),
-      base: analysis.gradient,
-      sourceTint: analysis.gradient,
-      tint: analysis.gradient,
+      base: tint,
+      sourceTint: tint,
+      tint,
       glyphImage: analysis.glyph,
       trace: analysis.glyph ? await traceGlyph(analysis.glyph, key) : null,
       locked: false

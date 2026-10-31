@@ -3,7 +3,7 @@ import './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runHarvest, buildTargets, extrasToTargets, mergeTargets, errText, RASTER_EXT, readHead } from '../core/index.js';
+import { runHarvest, buildTargets, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
@@ -62,6 +62,8 @@ const main = async () => {
   const overrides = await readJson(overridesPath, {});
   const extras = extrasToTargets(await readJson(extrasPath, {}));
   const targets = mergeTargets(buildTargets(catalog), extras);
+  const shippedCatalogue = await readJson(path.join(studioDir, 'config', 'catalogue.json'), { categories: [] });
+  const shippedKeys = new Map(mergeTargets(buildTargets(shippedCatalogue), extrasToTargets(await readJson(extrasPath, {}))).map((t) => [urlIdentity(t.url), t.key]));
   if (args.only) {
     const known = new Set(targets.map((t) => t.key));
     const unknown = args.only.filter((k) => !known.has(k));
@@ -88,12 +90,15 @@ const main = async () => {
       }
       return null;
     },
-    readKnown: async (key) => {
-      for (const ext of RASTER_EXT) {
-        try {
-          return { bytes: new Uint8Array(await fs.readFile(path.join(knownDir, key + '.' + ext))), file: 'known-icons/' + key + '.' + ext };
-        } catch (e) {
-          if (e.code !== 'ENOENT') throw e;
+    readKnown: async (key, url) => {
+      const byUrl = url ? shippedKeys.get(urlIdentity(url)) : null;
+      for (const name of byUrl && byUrl !== key ? [key, byUrl] : [key]) {
+        for (const ext of RASTER_EXT) {
+          try {
+            return { bytes: new Uint8Array(await fs.readFile(path.join(knownDir, name + '.' + ext))), file: 'known-icons/' + name + '.' + ext };
+          } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
+          }
         }
       }
       return null;

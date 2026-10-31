@@ -32,8 +32,9 @@ export const buildTargets = (catalog) => {
 export const extrasToTargets = (parsed) => {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   return Object.entries(parsed)
-    .filter(([k, u]) => KEY_RE.test(k) && typeof u === 'string' && /^https?:/.test(u))
-    .map(([k, u]) => ({ key: k, appId: k, variantId: null, url: u, extra: true }));
+    .map(([k, v]) => [k, typeof v === 'string' ? { url: v } : v])
+    .filter(([k, v]) => KEY_RE.test(k) && v && typeof v.url === 'string' && /^https?:/.test(v.url))
+    .map(([k, v]) => ({ key: k, appId: k, variantId: null, url: v.url, extra: true, ...(typeof v.name === 'string' && v.name ? { name: v.name } : {}) }));
 };
 
 export const mergeTargets = (catalogTargets, extras) => {

@@ -1,7 +1,7 @@
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
 import { normalize, gate } from './pixels.js';
-import { imageToLab, extractGradient, hexToLab, isHex } from './color.js';
+import { imageToLab, extractGradient, extractAccent, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph } from './glyph.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
 import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
@@ -189,7 +189,7 @@ export const processTarget = async (t, ctx) => {
 export const analyzeIcon = async (img) => {
   const n = img.width * img.height;
   const lab = imageToLab(img.data, n);
-  return { gradient: extractGradient(img.data, lab, n), glyph: await extractGlyph(img.data, lab, img.width, img.height) };
+  return { gradient: extractGradient(img.data, lab, n), accent: extractAccent(img.data, lab, n), glyph: await extractGlyph(img.data, lab, img.width, img.height) };
 };
 
 const baseName = (p) => p.split('/').pop().split('?')[0];
@@ -322,17 +322,19 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.image = r.image;
       rec.original = r.original || null;
       rec.hash = await pixelHash(r.image);
-      let analysis = { gradient: null, glyph: null };
+      let analysis = { gradient: null, accent: null, glyph: null };
       try {
         analysis = await analyzeIcon(r.image);
       } catch (e) {
         r.analysisError = errText(e);
       }
       const catalogue = !analysis.gradient && !legacy ? targetOf.get(r.key).catalogueTint || null : null;
-      rec.base = analysis.gradient || catalogue;
-      rec.sourceTint = analysis.gradient || catalogue;
-      rec.tint = analysis.gradient || catalogue;
+      const accent = !analysis.gradient && !catalogue && !legacy ? analysis.accent : null;
+      rec.base = analysis.gradient || catalogue || accent;
+      rec.sourceTint = analysis.gradient || catalogue || accent;
+      rec.tint = analysis.gradient || catalogue || accent;
       if (catalogue) rec.tintSource = 'catalogue';
+      else if (accent) rec.tintSource = 'accent';
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {

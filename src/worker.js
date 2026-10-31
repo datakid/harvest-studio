@@ -206,6 +206,7 @@ const handlers = {
     const r = await processTarget(target, { io: makeIo(), overrides: {}, local: false });
     if (!r.image) throw new Error(r.error || 'not a usable image');
     const analysis = await analyzeIcon(r.image);
+    const tint = analysis.gradient || analysis.accent;
     const prev = records.get(key) || { key, appId };
     const rec = {
       ...prev,
@@ -215,9 +216,9 @@ const handlers = {
       image: r.image,
       original: r.original || null,
       hash: await pixelHash(r.image),
-      base: analysis.gradient,
-      sourceTint: analysis.gradient,
-      tint: analysis.gradient,
+      base: tint,
+      sourceTint: tint,
+      tint,
       glyphImage: analysis.glyph,
       trace: analysis.glyph ? await traceGlyph(analysis.glyph, key) : null,
       locked: false

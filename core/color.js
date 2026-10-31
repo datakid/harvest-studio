@@ -95,7 +95,12 @@ export const hueDegrees = (hex) => {
   return ((h * 180) / Math.PI + 360) % 360;
 };
 
-export const extractGradient = (data, lab, n) => {
+const COLOUR_PASSES = [
+  { minC: 0.04, minL: 0.2, maxL: 0.95, minShare: 0.03 },
+  { minC: 0.1, minL: 0.3, maxL: 0.9, minShare: 0.006 }
+];
+
+const binChroma = (data, lab, n, pass) => {
   const bins = Array.from({ length: 24 }, () => ({ w: 0, L: 0, a: 0, b: 0 }));
   let opaque = 0;
   let chromatic = 0;
@@ -106,7 +111,7 @@ export const extractGradient = (data, lab, n) => {
     const a = lab[p * 3 + 1];
     const b = lab[p * 3 + 2];
     const C = Math.hypot(a, b);
-    if (C < 0.04 || L < 0.2 || L > 0.95) continue;
+    if (C < pass.minC || L < pass.minL || L > pass.maxL) continue;
     chromatic++;
     const h = (Math.atan2(b, a) + 2 * Math.PI) % (2 * Math.PI);
     const bin = bins[Math.floor((h / (2 * Math.PI)) * 24) % 24];
@@ -115,7 +120,20 @@ export const extractGradient = (data, lab, n) => {
     bin.a += a * C;
     bin.b += b * C;
   }
-  if (!opaque || chromatic / opaque < 0.03) return null;
+  return { bins, opaque, chromatic };
+};
+
+const gradientFrom = (data, lab, n, passes) => {
+  let found = null;
+  for (const pass of passes) {
+    const r = binChroma(data, lab, n, pass);
+    if (r.opaque && r.chromatic / r.opaque >= pass.minShare) {
+      found = r;
+      break;
+    }
+  }
+  if (!found) return null;
+  const { bins } = found;
   let best = 0;
   let bestW = -1;
   for (let i = 0; i < 24; i++) {
@@ -139,6 +157,10 @@ export const extractGradient = (data, lab, n) => {
   const c = Math.min(Math.max(Math.hypot(a, b), 0.06), 0.16);
   return tintFromOklch(c, h);
 };
+
+export const extractGradient = (data, lab, n) => gradientFrom(data, lab, n, COLOUR_PASSES.slice(0, 1));
+
+export const extractAccent = (data, lab, n) => gradientFrom(data, lab, n, COLOUR_PASSES.slice(1));
 
 export const tintFromOklch = (c, h) => [oklchHex(0.66, c, h), oklchHex(0.86, Math.min(c * 0.75, 0.11), h), oklchHex(0.38, Math.min(c, 0.12), h)];
 

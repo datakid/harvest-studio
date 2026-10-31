@@ -4,6 +4,7 @@ import { loadPrefs, savePrefs, loadToken, saveToken } from './prefs.js';
 import { createClient } from './worker-client.js';
 import { recolour, randomSeed, setManualColour, effectiveTheme, tileColours, requiredPatch } from './colour.js';
 import { scanJson } from '../core/sources.js';
+import { extrasToTargets, mergeTargets } from '../core/targets.js';
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
 import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED } from '../core/tints.js';
@@ -534,7 +535,10 @@ const renderIntake = () => {
 const harvestCatalogue = () => {
   const c = state.catalogue;
   if (!c) return;
-  state.pending.jsons = [{ name: 'catalogue.json', data: c.data, scan: scanJson(c.data, {}, getLang()) }];
+  const scan = scanJson(c.data, {}, getLang());
+  scan.targets = mergeTargets(scan.targets, c.extras);
+  scan.count = scan.targets.length;
+  state.pending.jsons = [{ name: 'catalogue.json', data: c.data, scan }];
   startHarvest();
 };
 
@@ -817,7 +821,7 @@ const selectedPanel = () => {
       h('dt', null, t('source')),
       h('dd', null, rec.faviconUrl ? h('span', { class: 'favicon-chip', style: { display: 'inline-grid', 'vertical-align': 'middle', 'margin-inline-end': '8px' } }, h('img', { src: rec.faviconUrl, alt: '' })) : null, src)
     ),
-    attemptsList(item.attempts)
+    ...[attemptsList(item.attempts)].filter(Boolean)
   );
   return panel;
 };
@@ -1001,12 +1005,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 applyCorners();
 renderAll();
 window.__studio = { state, client, prefs };
-fetch('./catalogue.json')
-  .then((r) => (r.ok ? r.json() : null))
-  .then((data) => {
+const loadJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+Promise.all([loadJson('./catalogue.json'), loadJson('./extras.json')])
+  .then(([data, extrasData]) => {
     const scan = data ? scanJson(data) : null;
     if (scan && scan.kind === 'launcher') {
-      state.catalogue = { data, count: scan.count };
+      const extras = extrasToTargets(extrasData);
+      state.catalogue = { data, extras, count: mergeTargets(scan.targets, extras).length };
       if (state.stage === 'intake') renderMain();
     }
   })

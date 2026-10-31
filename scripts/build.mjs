@@ -68,6 +68,7 @@ for (const f of (await fs.readdir(path.join(root, 'config', 'known-icons'))).sor
 }
 await fs.writeFile(path.join(dist, 'known', 'index.json'), JSON.stringify(knownIndex));
 await fs.copyFile(path.join(root, 'config', 'catalogue.json'), path.join(dist, 'catalogue.json'));
+await fs.copyFile(path.join(root, 'config', 'extras.json'), path.join(dist, 'extras.json'));
 
 let css = '';
 for (const name of ['tokens.css', 'app.css']) css += (await fs.readFile(path.join(root, 'src', name), 'utf8')) + '\n';

@@ -260,19 +260,19 @@ await check('a site that cannot be reached without a proxy is named in a notice 
   assert.equal(await noProxy.locator('.gallery .cell').count(), 3);
 });
 
-await check('the shipped catalogue harvests in one click with no proxy, protocols included', async () => {
+await check('the shipped catalogue harvests in one click with no proxy, protocols, Fihrist and the Studio included', async () => {
   const fresh = await open({ width: 1200, height: 800 });
   await fresh.waitForSelector('#harvest-catalogue');
-  assert.match(await fresh.locator('#harvest-catalogue').innerText(), /32/);
+  assert.match(await fresh.locator('#harvest-catalogue').innerText(), /34/);
   await fresh.click('#harvest-catalogue');
   await fresh.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
-  await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 32, null, { timeout: 120000 });
+  await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
   const state = await fresh.evaluate(() => {
     const items = [...window.__studio.state.items.values()];
     const p = items.find((i) => i.key === 'protocols');
     return { total: items.length, found: items.filter((i) => i.status === 'found').length, protocols: p && p.status, source: p && p.source && p.source.type };
   });
-  assert.deepEqual(state, { total: 32, found: 32, protocols: 'found', source: 'bundled' });
+  assert.deepEqual(state, { total: 34, found: 34, protocols: 'found', source: 'bundled' });
   assert.equal(await fresh.locator('.toast').count(), 0);
 });
 

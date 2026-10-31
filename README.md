@@ -122,7 +122,3 @@ The traced glyphs use `esm-potrace-wasm`, which is GPL-2.0 (it wraps potrace). T
 
 - Lossy atlas files use WebP effort 5 and the lossless probe skips the slow encode when it cannot fit, so a full catalogue harvest takes about a third of the time of earlier versions; atlas files are a few percent larger for the same quality step, still inside the 150 KiB budget. Each fetch in the Studio gives up after 20 seconds and says which site stalled.
 - An SVG favicon with `<text>` is drawn with the bundled Readex Pro Regular (Latin, Latin Extended, Vietnamese and Arabic). Text with emoji or other scripts is rejected as `failed` with the reason "svg text uses characters the bundled font lacks" instead of drawing empty boxes, and the next icon source is tried. Drop the image in yourself or use Replace image for those sites.
-
-## Not included
-
-Committing exports straight to GitHub (do that from your own repo), and the CLI does not offer the Palette mode.

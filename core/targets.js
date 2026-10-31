@@ -29,6 +29,63 @@ export const buildTargets = (catalog) => {
   return out;
 };
 
+const PIGMENTS = { bone: '#b9ad92', verdigris: '#3aa89a', tyrian: '#a8327a', lapis: '#2f5fc4', madder: '#c4403f', orpiment: '#e0a21b', indigo: '#4b4aa8', malachite: '#2a9d62' };
+
+const fihristName = (node, lang) => (lang === 'ar' ? node.ar || node.en : node.en || node.ar) || '';
+
+export const isFihrist = (data) => !!(data && typeof data.format === 'string' && /^fihrist\//i.test(data.format) && Array.isArray(data.tools));
+
+export const buildFihristTargets = (data, lang = 'en') => {
+  const out = [];
+  if (!isFihrist(data)) return out;
+  for (const tool of data.tools) {
+    if (!tool || typeof tool.id !== 'string' || !KEY_RE.test(tool.id)) continue;
+    const title = fihristName(tool, lang) || tool.id;
+    const extras = { ...(PIGMENTS[tool.pigment] ? { catalogueTint: tintFromHex(PIGMENTS[tool.pigment]) } : {}), ...(tool.closed === true ? { closed: true } : {}) };
+    if (Array.isArray(tool.variants) && tool.variants.length) {
+      for (const v of tool.variants) {
+        if (!v || typeof v.id !== 'string' || typeof v.url !== 'string') continue;
+        const label = fihristName(v, lang);
+        out.push({ key: tool.id + '--' + v.id, appId: tool.id, variantId: v.id, url: v.url, name: label ? title + ' \u00b7 ' + label : title, ...extras });
+      }
+    } else if (typeof tool.url === 'string') {
+      out.push({ key: tool.id, appId: tool.id, variantId: null, url: tool.url, name: title, ...extras });
+    }
+  }
+  return out;
+};
+
+export const urlIdentity = (url) => {
+  try {
+    const u = new URL(url);
+    return u.hostname.toLowerCase().replace(/^www\./, '') + u.pathname.replace(/\/+$/, '') + u.search;
+  } catch {
+    return null;
+  }
+};
+
+export const findDuplicates = (targets) => {
+  const groups = new Map();
+  targets.forEach((t, index) => {
+    const id = t.url ? urlIdentity(t.url) : null;
+    if (!id) return;
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push({ key: t.key, name: t.name || t.key, index, url: t.url });
+  });
+  return [...groups.entries()].filter(([, list]) => list.length > 1).map(([id, entries]) => ({ id, url: entries[0].url, entries }));
+};
+
+export const dropDuplicates = (targets) => {
+  const seen = new Set();
+  return targets.filter((t) => {
+    const id = t.url ? urlIdentity(t.url) : null;
+    if (!id) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+};
+
 export const extrasToTargets = (parsed) => {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
   return Object.entries(parsed)

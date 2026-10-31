@@ -84,7 +84,7 @@ const finishFrom = async (bytes, source, result) => {
 const useKnown = async (io, r) => {
   let hit;
   try {
-    hit = await io.readKnown(r.key);
+    hit = await io.readKnown(r.key, r.url);
   } catch {
     hit = null;
   }
@@ -528,3 +528,4 @@ export const runHarvest = async (input, options = {}, io) => {
 };
 
 export { canonicalJson, EXT_BY_NAME, KEY_RE, buildTargets, extrasToTargets, mergeTargets };
+export { buildFihristTargets, isFihrist, urlIdentity, findDuplicates, dropDuplicates } from './targets.js';

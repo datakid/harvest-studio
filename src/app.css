@@ -222,4 +222,12 @@ pre.code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(-
 .recent .dots { display: inline-flex; }
 .recent .dots i { width: 14px; height: 14px; border-radius: 50%; margin-inline-start: -4px; border: 2px solid var(--bg); }
 .recent .dots i:first-child { margin-inline-start: 0; }
-.catalogue { width: 100%; justify-content: center; margin-block-end: 4px; min-height: 52px; font-size: 15.5px; }
+.sets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-block-end: 4px; }
+.sets .btn { justify-content: center; }
+.sets .catalogue { grid-column: 1 / -1; min-height: 52px; font-size: 15.5px; }
+.sets .catalogue:only-child { grid-column: 1 / -1; }
+@media (max-width: 460px) { .sets { grid-template-columns: 1fr; } }
+.dups { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 40vh; overflow: auto; }
+.dups li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13.5px; }
+.dups .href { color: var(--muted); overflow-wrap: anywhere; font-size: 12.5px; }
+.dups .more { color: var(--muted); border-style: dashed; }

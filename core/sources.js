@@ -1,4 +1,4 @@
-import { buildTargets, KEY_RE } from './targets.js';
+import { buildTargets, buildFihristTargets, isFihrist, KEY_RE } from './targets.js';
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 const DOMAIN_RE = /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/:?#][^\s]*)?$/i;
@@ -142,6 +142,10 @@ const catalogueName = (app, variantId, lang) => {
 };
 
 export const scanJson = (data, overrides = {}, lang = 'en') => {
+  if (isFihrist(data)) {
+    const targets = buildFihristTargets(data, lang);
+    return { kind: 'fihrist', label: 'fihrist', count: targets.length, targets, fields: null, candidates: null, languages: [] };
+  }
   if (data && Array.isArray(data.categories) && data.categories.some((c) => c && Array.isArray(c.apps))) {
     const apps = new Map();
     for (const cat of data.categories) for (const app of (cat && cat.apps) || []) if (app && typeof app.id === 'string') apps.set(app.id, app);

@@ -14,6 +14,7 @@ import {
   zipFiles,
   stableStringify,
   readHead,
+  urlIdentity,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
@@ -36,6 +37,7 @@ configureRuntime({
 let records = new Map();
 let lastReport = null;
 let knownIndex = null;
+let knownUrls = null;
 let settings = { proxyUrl: '', proxyToken: '' };
 
 const makeIo = () => ({
@@ -84,10 +86,11 @@ const makeIo = () => ({
     return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
   },
   readLocal: async () => null,
-  readKnown: async (key) => {
+  readKnown: async (key, url) => {
     const base = wasmBase.replace(/wasm\/$/, '') + 'known/';
     knownIndex ||= fetch(base + 'index.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const file = (await knownIndex)[key];
+    knownUrls ||= fetch(base + 'urls.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    const file = (await knownIndex)[key] || (url && (await knownUrls)[urlIdentity(url)]);
     if (!file) return null;
     const res = await fetch(base + file);
     return res.ok ? { bytes: new Uint8Array(await res.arrayBuffer()), file: 'known/' + file } : null;

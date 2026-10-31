@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { buildTargets, extrasToTargets, mergeTargets, urlIdentity } from '../core/targets.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -67,7 +68,16 @@ for (const f of (await fs.readdir(path.join(root, 'config', 'known-icons'))).sor
   knownIndex[f.replace(/\.[a-z0-9]+$/, '')] = f;
 }
 await fs.writeFile(path.join(dist, 'known', 'index.json'), JSON.stringify(knownIndex));
+const shipped = JSON.parse(await fs.readFile(path.join(root, 'config', 'catalogue.json'), 'utf8'));
+const shippedExtras = JSON.parse(await fs.readFile(path.join(root, 'config', 'extras.json'), 'utf8'));
+const knownByUrl = {};
+for (const t of mergeTargets(buildTargets(shipped), extrasToTargets(shippedExtras))) {
+  const id = urlIdentity(t.url);
+  if (id && knownIndex[t.key]) knownByUrl[id] = knownIndex[t.key];
+}
+await fs.writeFile(path.join(dist, 'known', 'urls.json'), JSON.stringify(knownByUrl));
 await fs.copyFile(path.join(root, 'config', 'catalogue.json'), path.join(dist, 'catalogue.json'));
+await fs.copyFile(path.join(root, 'config', 'fihrist.json'), path.join(dist, 'fihrist.json'));
 await fs.copyFile(path.join(root, 'config', 'extras.json'), path.join(dist, 'extras.json'));
 
 let css = '';

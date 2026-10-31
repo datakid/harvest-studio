@@ -4,7 +4,7 @@ import { loadPrefs, savePrefs, loadToken, saveToken } from './prefs.js';
 import { createClient } from './worker-client.js';
 import { recolour, randomSeed, setManualColour, effectiveTheme, tileColours, requiredPatch } from './colour.js';
 import { scanJson } from '../core/sources.js';
-import { extrasToTargets, mergeTargets } from '../core/targets.js';
+import { extrasToTargets, mergeTargets, findDuplicates, dropDuplicates, isFihrist } from '../core/targets.js';
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
 import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED } from '../core/tints.js';
@@ -27,6 +27,7 @@ const state = {
   order: [],
   items: new Map(),
   catalogue: null,
+  fihrist: null,
   selected: null,
   seed: DEFAULT_SEED,
   progress: null,
@@ -207,7 +208,7 @@ const scanPanel = (json, index) => {
     panel.append(h('h3', null, json.name), h('p', { class: 'hint-text' }, t('scanNone')));
     return panel;
   }
-  panel.append(h('h3', null, t('scanFound', { n: s.count, label: s.kind === 'launcher' ? t('scanLauncher') : s.label }) + ' · ' + json.name));
+  panel.append(h('h3', null, t('scanFound', { n: s.count, label: s.kind === 'launcher' ? t('scanLauncher') : s.kind === 'fihrist' ? t('scanFihrist') : s.label }) + ' · ' + json.name));
   if (s.kind === 'generic') {
     const select = (label, key, options, value, allowNone) =>
       h(
@@ -347,7 +348,16 @@ const startHarvest = async () => {
     return;
   }
   state.error = null;
-  const targets = await buildTargets(state.pending);
+  let targets = await buildTargets(state.pending);
+  const duplicates = findDuplicates(targets);
+  if (duplicates.length) {
+    const choice = await askDuplicates(duplicates, targets.length);
+    if (choice === 'cancel') {
+      renderMain();
+      return;
+    }
+    if (choice === 'once') targets = dropDuplicates(targets);
+  }
   state.names = new Map(targets.map((x) => [x.key, x.name || x.key]));
   state.stage = 'busy';
   state.ghosts = targets.length;
@@ -507,7 +517,7 @@ const renderIntake = () => {
       h(
         'div',
         { class: 'intake' },
-        catalogueButton(),
+        setButtons(),
         h(
           'form',
           { class: 'field', onSubmit: (e) => { e.preventDefault(); startHarvest(); } },
@@ -534,20 +544,71 @@ const renderIntake = () => {
   return hero;
 };
 
-const harvestCatalogue = () => {
+const launcherSet = () => {
   const c = state.catalogue;
-  if (!c) return;
   const scan = scanJson(c.data, {}, getLang());
   scan.targets = mergeTargets(scan.targets, c.extras);
   scan.count = scan.targets.length;
-  state.pending.jsons = [{ name: 'catalogue.json', data: c.data, scan }];
+  return { name: 'catalogue.json', data: c.data, scan };
+};
+
+const fihristSet = () => ({ name: 'fihrist.json', data: state.fihrist.data, scan: scanJson(state.fihrist.data, {}, getLang()) });
+
+const harvestSets = (which) => {
+  const sets = [];
+  if ((which === 'launcher' || which === 'both') && state.catalogue) sets.push(launcherSet());
+  if ((which === 'fihrist' || which === 'both') && state.fihrist) sets.push(fihristSet());
+  if (!sets.length) return;
+  state.pending.jsons = sets;
   startHarvest();
 };
 
-const catalogueButton = () =>
-  state.catalogue
-    ? h('button', { class: 'btn primary catalogue', id: 'harvest-catalogue', type: 'button', onClick: harvestCatalogue }, icon('folder', { size: 16 }), t('harvestCatalogue', { n: state.catalogue.count }))
-    : null;
+const setButtons = () => {
+  const buttons = [];
+  if (state.catalogue) buttons.push(h('button', { class: 'btn primary catalogue', id: 'harvest-catalogue', type: 'button', onClick: () => harvestSets('launcher') }, icon('folder', { size: 16 }), t('harvestCatalogue', { n: state.catalogue.count })));
+  if (state.fihrist) buttons.push(h('button', { class: 'btn', id: 'harvest-fihrist', type: 'button', onClick: () => harvestSets('fihrist') }, icon('folder', { size: 16 }), t('harvestFihrist', { n: state.fihrist.count })));
+  if (state.catalogue && state.fihrist) buttons.push(h('button', { class: 'btn', id: 'harvest-both', type: 'button', onClick: () => harvestSets('both') }, icon('folder', { size: 16 }), t('harvestBoth', { n: state.catalogue.count + state.fihrist.count })));
+  return buttons.length ? h('div', { class: 'sets' }, buttons) : null;
+};
+
+const askDuplicates = (groups, total) =>
+  new Promise((resolve) => {
+    const extra = groups.reduce((n, g) => n + g.entries.length - 1, 0);
+    const dlg = h('dialog', { 'aria-labelledby': 'dup-title', id: 'dup-dialog' });
+    let choice = 'cancel';
+    const pick = (value) => () => {
+      choice = value;
+      dlg.close();
+    };
+    const shown = groups.slice(0, 8);
+    dlg.append(
+      h(
+        'div',
+        { class: 'dlg' },
+        h('header', null, h('h2', { id: 'dup-title' }, t('dupTitle', { n: groups.length }))),
+        h('p', { class: 'hint-text' }, t('dupBody', { n: groups.length, extra, total })),
+        h(
+          'ul',
+          { class: 'dups' },
+          shown.map((g) => h('li', null, h('b', { dir: 'auto' }, g.entries.map((e) => e.name).join(' = ')), h('span', { class: 'href', dir: 'ltr' }, g.url))),
+          groups.length > shown.length ? h('li', { class: 'more' }, t('dupMore', { n: groups.length - shown.length })) : null
+        ),
+        h(
+          'div',
+          { class: 'actions-end' },
+          h('button', { class: 'btn quiet', id: 'dup-cancel', type: 'button', onClick: pick('cancel') }, t('dupCancel')),
+          h('button', { class: 'btn', id: 'dup-keep', type: 'button', onClick: pick('keep') }, t('dupKeep', { n: total })),
+          h('button', { class: 'btn primary', id: 'dup-once', type: 'button', onClick: pick('once') }, t('dupOnce', { n: total - extra }))
+        )
+      )
+    );
+    dlg.addEventListener('close', () => {
+      dlg.remove();
+      resolve(choice);
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+  });
 
 const refreshHarvestLabel = () => {
   const go = document.getElementById('go');
@@ -1008,14 +1069,15 @@ applyCorners();
 renderAll();
 window.__studio = { state, client, prefs };
 const loadJson = (url) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-Promise.all([loadJson('./catalogue.json'), loadJson('./extras.json')])
-  .then(([data, extrasData]) => {
+Promise.all([loadJson('./catalogue.json'), loadJson('./extras.json'), loadJson('./fihrist.json')])
+  .then(([data, extrasData, fihristData]) => {
     const scan = data ? scanJson(data) : null;
     if (scan && scan.kind === 'launcher') {
       const extras = extrasToTargets(extrasData);
       state.catalogue = { data, extras, count: mergeTargets(scan.targets, extras).length };
-      if (state.stage === 'intake') renderMain();
     }
+    if (isFihrist(fihristData)) state.fihrist = { data: fihristData, count: scanJson(fihristData).count };
+    if ((state.catalogue || state.fihrist) && state.stage === 'intake') renderMain();
   })
   .catch(() => {});
 listProjects().then((list) => {

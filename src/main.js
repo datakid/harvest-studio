@@ -348,6 +348,7 @@ const startHarvest = async () => {
   }
   state.error = null;
   const targets = await buildTargets(state.pending);
+  state.names = new Map(targets.map((x) => [x.key, x.name || x.key]));
   state.stage = 'busy';
   state.ghosts = targets.length;
   state.progress = { done: 0, total: targets.length, phase: 'fetch' };
@@ -386,10 +387,11 @@ const updateProgress = () => {
   const bar = document.querySelector('.progress i');
   const text = document.querySelector('.progress-text');
   if (!state.progress || !bar) return;
-  const { done, total, phase } = state.progress;
+  const { done, total, phase, pending } = state.progress;
   const share = phase === 'trace' ? 0.5 + (done / total) * 0.5 : (done / total) * 0.5;
   bar.style.width = Math.round(share * 100) + '%';
-  text.textContent = t(phase === 'trace' ? 'tracing' : 'fetching', { done, total });
+  const waiting = phase === 'fetch' && pending && pending.length && pending.length === total - done ? pending.map((k) => (state.names && state.names.get(k)) || k) : [];
+  text.textContent = waiting.length ? t('fetchingWaiting', { done, total, names: waiting.join(', ') }) : t(phase === 'trace' ? 'tracing' : 'fetching', { done, total });
   bar.parentElement.setAttribute('aria-valuenow', String(Math.round(share * 100)));
   bar.parentElement.setAttribute('aria-valuetext', text.textContent);
 };

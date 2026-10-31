@@ -17,19 +17,56 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
+export const TARGET_TIMEOUT_MS = 25000;
+const TICK_MS = 2500;
+
 export const fetchRetry = async (io, url, options) => {
   let last;
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 2; i++) {
     try {
       return await io.fetchBytes(url, options);
     } catch (e) {
       last = e;
-      if (e && e.fatal) throw e;
-      if (i < 2) await (io.sleep ? io.sleep(1000) : new Promise((r) => setTimeout(r, 1000)));
+      if (e && (e.fatal || e.timeout)) throw e;
+      if (i < 1) await (io.sleep ? io.sleep(500) : new Promise((r) => setTimeout(r, 500)));
     }
   }
   throw last;
 };
+
+const hostOf = (href) => {
+  try {
+    return new URL(href).host;
+  } catch {
+    return null;
+  }
+};
+
+const gaveUp = (t, ms) => ({
+  key: t.key,
+  url: t.url || null,
+  status: 'notfound',
+  source: null,
+  error: 'gave up after ' + Math.round(ms / 1000) + ' seconds',
+  image: null,
+  fa: false,
+  attempts: [{ type: 'page', href: short(t.url || t.key), status: 'failed', reason: 'gave up after ' + Math.round(ms / 1000) + ' seconds' }]
+});
+
+const withDeadline = (t, run, ms) =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(gaveUp(t, ms)), ms);
+    run.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(gaveUp(t, ms));
+      }
+    );
+  });
 
 export const pixelHash = (img) => sha256(img.data);
 
@@ -123,6 +160,7 @@ export const processTarget = async (t, ctx) => {
   const errors = [];
   let html = '';
   let pageOk = false;
+  let pageDown = false;
   let base = t.url;
   try {
     const res = await fetchRetry(io, t.url, { head: true });
@@ -136,10 +174,12 @@ export const processTarget = async (t, ctx) => {
     html = text(res.bytes);
     pageOk = res.ok;
   } catch (e) {
+    pageDown = true;
     errors.push('page: ' + errText(e));
     result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
   }
   base = readBaseHref(html, base);
+  const pageHost = hostOf(base);
   const links = readLinks(html);
   if (html && !links.length && CHALLENGE_RE.test(html)) {
     result.status = 'blocked';
@@ -155,6 +195,10 @@ export const processTarget = async (t, ctx) => {
       if (tried.has(c.href)) continue;
       tried.add(c.href);
       const at = { type: c.type, href: short(c.href) };
+      if (pageDown && pageHost && hostOf(c.href) === pageHost) {
+        result.attempts.push({ ...at, status: 'failed', reason: 'skipped, the site did not answer' });
+        continue;
+      }
       try {
         const bytes = await loadHref(c.href, fetchIo);
         if (!bytes || !bytes.length) throw new Error('empty');
@@ -300,11 +344,26 @@ export const runHarvest = async (input, options = {}, io) => {
 
   let done = 0;
   const only = options.only ? new Set(options.only) : null;
-  const results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
-    const r = only && !only.has(t.key) ? { key: t.key, url: t.url, status: 'skipped' } : await processTarget(t, { io, overrides, local });
-    progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status });
-    return r;
-  });
+  const limit = options.targetTimeoutMs === undefined ? (local ? 0 : TARGET_TIMEOUT_MS) : options.targetTimeoutMs;
+  const inflight = new Set();
+  const ticker = options.onProgress && !local ? setInterval(() => progress({ phase: 'fetch', done, total: targets.length, pending: [...inflight] }), options.tickMs || TICK_MS) : null;
+  let results;
+  try {
+    results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
+      if (only && !only.has(t.key)) {
+        progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: 'skipped', pending: [...inflight] });
+        return { key: t.key, url: t.url, status: 'skipped' };
+      }
+      inflight.add(t.key);
+      const run = processTarget(t, { io, overrides, local });
+      const r = limit ? await withDeadline(t, run, limit) : await run;
+      inflight.delete(t.key);
+      progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status, pending: [...inflight] });
+      return r;
+    });
+  } finally {
+    if (ticker) clearInterval(ticker);
+  }
 
   const records = [];
   const byKey = new Map();

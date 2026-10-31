@@ -76,7 +76,9 @@ const makeIo = () => ({
       try {
         why = (await res.json()).error || why;
       } catch {}
-      throw new Error('proxy: ' + why);
+      const e = new Error('proxy: ' + why);
+      if (res.status === 504) e.timeout = true;
+      throw e;
     }
     const upstream = Number(res.headers.get('x-upstream-status')) || res.status;
     return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };

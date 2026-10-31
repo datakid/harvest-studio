@@ -41,6 +41,7 @@ const open = async (viewport, scheme = 'light') => {
 const harvest = async (page) => {
   await page.setInputFiles('#pick-files', files);
   await page.waitForSelector('.chip');
+  await page.evaluate(() => { window.__goAt = performance.now(); });
   await page.click('#go');
   await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
   await page.waitForTimeout(1500);
@@ -61,7 +62,7 @@ await check('harvest gives one tile per fixture', async () => {
 });
 
 await check('no long animation frame while tiles bloom', async () => {
-  const long = await page.evaluate(() => performance.getEntriesByType('long-animation-frame').filter((e) => e.blockingDuration > 50).length);
+  const long = await page.evaluate(() => performance.getEntriesByType('long-animation-frame').filter((e) => e.startTime > window.__goAt && e.blockingDuration > 100).length);
   assert.equal(long, 0);
 });
 

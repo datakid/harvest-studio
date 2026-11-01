@@ -273,6 +273,26 @@ export const opaqueShare = (img) => {
   return n / (img.width * img.height);
 };
 
+export const CORNER_RATIO = 0.27;
+
+export const roundCorners = (img, ratio = CORNER_RATIO) => {
+  const { width: w, height: h } = img;
+  const r = Math.min(w, h) * ratio;
+  const out = copyImage(img);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const px = x + 0.5;
+      const py = y + 0.5;
+      const cx = px < r ? r : px > w - r ? w - r : px;
+      const cy = py < r ? r : py > h - r ? h - r : py;
+      if (cx === px && cy === py) continue;
+      const cover = Math.min(1, Math.max(0, 0.5 - (Math.hypot(px - cx, py - cy) - r)));
+      if (cover < 1) out.data[(y * w + x) * 4 + 3] = Math.round(out.data[(y * w + x) * 4 + 3] * cover);
+    }
+  }
+  return out;
+};
+
 export const PNG_SIG = [0x89, 0x50, 0x4e, 0x47];
 
 export const hasAlphaChannel = (bytes, ext, img) => {

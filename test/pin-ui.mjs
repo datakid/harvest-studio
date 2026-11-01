@@ -81,6 +81,24 @@ await check('the attempts list offers Use this one, pins the source and offers t
   assert.deepEqual(Object.values(copied), [{ href: 'https://' + PIN_HOST + '/touch.jpg' }]);
 });
 
+await check('the item panel shows the contrast adjustment and the low-res flag', async () => {
+  await tab.evaluate(() => {
+    const { state } = window.__studio;
+    const key = [...state.records.keys()][0];
+    const rec = state.records.get(key);
+    rec.contrast = 'nudged';
+    rec.sourceTint = ['#aaccee', '#ffffff', '#000000'];
+    rec.tint = ['#336699', '#ffffff', '#000000'];
+    const item = state.items.get(key);
+    state.items.set(key, { ...item, flags: ['low-res'] });
+  });
+  await tab.locator('.gallery .cell[data-key]').first().click();
+  await tab.locator('.gallery .cell[data-key]').first().click();
+  await tab.waitForSelector('[data-note="contrast"]');
+  assert.equal(await tab.locator('[data-note="contrast"]').innerText(), 'Adjusted for contrast: #aaccee → #336699');
+  assert.equal(await tab.locator('[data-flag="low-res"]').innerText(), 'Low resolution source');
+});
+
 await check('no console errors in the browser run', () => assert.deepEqual(errors.filter((e) => !/401|404|Failed to load resource/.test(e)), []));
 
 await chrome.close();

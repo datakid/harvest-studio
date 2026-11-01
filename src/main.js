@@ -887,7 +887,9 @@ const selectedPanel = () => {
   if (rec.contrast === 'flagged') flags.push(h('span', { class: 'pill bad' }, t('contrastFlagged')));
   if (rec.contrast === 'nudged') flags.push(h('span', { class: 'pill warn' }, t('contrastNudged')));
   if (rec.tight) flags.push(h('span', { class: 'pill warn' }, t('tight')));
+  if ((item.flags || []).includes('low-res')) flags.push(h('span', { class: 'pill warn', 'data-flag': 'low-res' }, t('lowRes')));
   const stale = (item.flags || []).includes('stale-source');
+  const nudge = rec.contrast === 'nudged' && Array.isArray(rec.sourceTint) && Array.isArray(rec.tint) ? h('span', { class: 'contrast-note', 'data-note': 'contrast', dir: 'ltr' }, t('contrastAdjusted', { from: rec.sourceTint[0], to: rec.tint[0] })) : null;
   if (stale) flags.push(h('span', { class: 'pill warn', 'data-flag': 'stale-source' }, t('staleSource')), h('button', { class: 'btn', type: 'button', 'data-act': 'retry-live', onClick: () => retryLive(rec) }, t('retryLive')));
   const src = item.source ? (item.source.type + ' ' + (item.source.href || '')).slice(0, 120) : item.error || '-';
   panel.append(
@@ -896,6 +898,8 @@ const selectedPanel = () => {
       { class: 'facts' },
       h('dt', null, t('status')),
       h('dd', null, h('span', { class: 'pill' + (rec.status === 'found' || rec.status === 'override' ? ' ok' : ' warn') }, t(statusKey(rec.status))), ' ', flags),
+      nudge ? h('dt', null, t('contrast')) : null,
+      nudge ? h('dd', null, nudge) : null,
       h('dt', null, t('glyph')),
       h('dd', null, glyphLabel),
       h('dt', null, t('source')),

@@ -1,4 +1,4 @@
-import { makeImage, pasteImage, resizeTo } from './pixels.js';
+import { makeImage, pasteImage, resizeTo, roundCorners } from './pixels.js';
 import { encodeWebp, decodeWebp } from './codecs.js';
 
 export const ATLAS_LIMIT = 153600;
@@ -7,7 +7,7 @@ export const QUALITY_STEPS = [90, 85, 80, 75];
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-export const packAtlas = async (items, cell = DEFAULT_CELL) => {
+export const packAtlas = async (items, cell = DEFAULT_CELL, { corners = null } = {}) => {
   const sorted = [...items].sort(byKey);
   const count = sorted.length;
   const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
@@ -18,7 +18,7 @@ export const packAtlas = async (items, cell = DEFAULT_CELL) => {
     const x = (i % cols) * cell;
     const y = Math.floor(i / cols) * cell;
     const fitted = sorted[i].image.width === cell && sorted[i].image.height === cell ? sorted[i].image : await resizeTo(sorted[i].image, cell, cell);
-    pasteImage(image, fitted, x, y);
+    pasteImage(image, corners ? roundCorners(fitted, corners) : fitted, x, y);
     positions.set(sorted[i].key, { x, y });
   }
   return { image, positions, width: image.width, height: image.height, cols, rows, cell };

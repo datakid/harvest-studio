@@ -2,7 +2,7 @@ import { gzipSync, zipSync } from 'fflate';
 import { sha256, canonicalJson, utf8 } from './runtime.js';
 import { packAtlas, encodeAtlas, encodeMaskAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
 import { symbolMarkup, SYMBOL_MAX_BYTES } from './glyph.js';
-import { resizeTo } from './pixels.js';
+import { resizeTo, CORNER_RATIO } from './pixels.js';
 import { encodePng, resizeStretch } from './codecs.js';
 import { encodeImage, encodeIcoFrames, EXTENSIONS } from './encode.js';
 import { passesContrast } from './color.js';
@@ -61,7 +61,7 @@ export const evaluateGate = ({ sprite, symbolSizes, atlas, glyphAtlas, records }
 export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, generatedAt, prefix = LAUNCHER_PROFILE.prefix, seed = null, shapes = {} } = {}) => {
   const withImage = records.filter((r) => r.image);
   const rejected = records.filter((r) => !(r.trace && r.trace.accepted) && r.glyphImage);
-  const atlasPack = await packAtlas(withImage.map((r) => ({ key: r.key, image: r.image })), cell);
+  const atlasPack = await packAtlas(withImage.map((r) => ({ key: r.key, image: r.image })), cell, { corners: CORNER_RATIO });
   const atlasEnc = withImage.length ? await encodeAtlas(atlasPack.image) : null;
   const glyphPack = rejected.length ? await packAtlas(rejected.map((r) => ({ key: r.key, image: r.glyphImage })), cell) : null;
   const glyphEnc = glyphPack ? await encodeMaskAtlas(glyphPack.image) : null;

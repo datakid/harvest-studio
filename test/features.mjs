@@ -155,7 +155,7 @@ await check('work autosaves as a project that reopens after a reload', async () 
   const reloaded = await fresh();
   await reloaded.waitForSelector('.recent');
   assert.match(await reloaded.locator('.recent').first().innerText(), /Launcher set/);
-  assert.match(await reloaded.locator('.recent').first().innerText(), /33 icons/);
+  assert.match(await reloaded.locator('.recent').first().innerText(), /34 icons/);
   await reloaded.locator('.recent').first().click();
   await reloaded.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
   assert.equal(await reloaded.locator('.gallery .cell').count(), files.length);

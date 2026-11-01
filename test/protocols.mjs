@@ -52,7 +52,10 @@ await check('harvesting the site finds the icon, keeps its drawn glyph and takes
   assert.equal(item.source.type, 'ico');
   assert.equal(item.tintSource, 'catalogue');
   assert.ok(item.glyph);
-  assert.deepEqual(item.attempts.map((a) => [a.type, a.status]), [['ico', 'used']]);
+  const used = item.attempts.filter((a) => a.status === 'used');
+  assert.deepEqual(used.map((a) => a.type), ['ico']);
+  assert.ok(item.attempts.some((a) => a.type === 'well-known' && a.status === 'failed'));
+  assert.deepEqual(item.flags, ['low-res']);
   assert.ok(r.report.gate.ok);
 });
 

@@ -19,6 +19,8 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
 const PHOTO_SHARE = 0.4;
+const SOFT_ICO_PX = 64;
+export const LOW_RES = 'low-res';
 
 const hasSvgLink = (links) => links.some((l) => l.rel.includes('icon') && (/svg/i.test(l.type || '') || /\.svg(?:[?#]|$)/i.test(l.href || '')));
 
@@ -249,12 +251,13 @@ export const processTarget = async (t, ctx) => {
     result.image = found.img;
     result.original = found.original;
     result.status = 'found';
+    if (found.soft) result.flags = [...(result.flags || []), LOW_RES];
     return result;
   };
-  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk })) {
+  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk, forceWellKnown: () => !!held && held.soft })) {
     for (const c of await group()) {
       if (tried.has(c.href)) continue;
-      if (held && c.type !== 'svg') continue;
+      if (held && c.type !== held.wants) continue;
       tried.add(c.href);
       const at = { type: c.type, href: short(c.href) };
       if (pageDown && pageHost && hostOf(c.href) === pageHost) {
@@ -279,6 +282,11 @@ export const processTarget = async (t, ctx) => {
           result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
+        if (held && held.soft) {
+          if (srcWidth === null || srcWidth >= SOFT_ICO_PX) return accept({ at, img, original, reason: 'well-known path beats low-res ico' });
+          result.attempts.push({ ...at, status: 'rejected', reason: 'also low resolution' });
+          continue;
+        }
         if (held) {
           if (isRichSvg(img)) {
             result.attempts.push({ ...held.at, status: 'rejected', reason: held.why });
@@ -289,7 +297,11 @@ export const processTarget = async (t, ctx) => {
         }
         const reason = retried ? 'retry after timeout' : null;
         if (c.type === 'apple-touch-icon' && (ext === 'jpg' || highFrequencyShare(img) > PHOTO_SHARE) && hasSvgLink(links)) {
-          held = { at, img, original, reason, why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
+          held = { at, img, original, reason, wants: 'svg', why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
+          continue;
+        }
+        if (ext === 'ico' && srcWidth !== null && srcWidth < SOFT_ICO_PX && (c.type === 'ico' || c.type === 'favicon.ico')) {
+          held = { at, img, original, reason, soft: true, wants: 'well-known' };
           continue;
         }
         return accept({ at, img, original, reason });

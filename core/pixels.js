@@ -1,5 +1,6 @@
 import { decodeImage } from './decode.js';
 import { resizeStretch } from './codecs.js';
+import { toOklab, smooth } from './color.js';
 
 export const makeImage = (width, height) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) });
 
@@ -145,6 +146,95 @@ export const matteCorners = async (img) => {
   return resizeTo(cropImage(out, minX, minY, bw, bh), 192, 192);
 };
 
+export const BG_DELTA = 0.04;
+export const BG_MIN_AREA = 0.18;
+export const BG_MIN_OPAQUE = 0.06;
+export const BG_SAFE = 104 / 128;
+
+export const removeFlatBackground = async (img) => {
+  const { width: w, height: h, data } = img;
+  const n = w * h;
+  if (w < 8 || h < 8) return img;
+  const corners = [0, w - 1, (h - 1) * w, n - 1];
+  if (corners.some((p) => data[p * 4 + 3] < 250)) return img;
+  const labs = new Float32Array(n * 3);
+  const done = new Uint8Array(n);
+  const labAt = (p) => {
+    if (!done[p]) {
+      const l = toOklab(data[p * 4], data[p * 4 + 1], data[p * 4 + 2]);
+      labs[p * 3] = l[0];
+      labs[p * 3 + 1] = l[1];
+      labs[p * 3 + 2] = l[2];
+      done[p] = 1;
+    }
+    return p * 3;
+  };
+  const bg = [0, 0, 0];
+  for (const c of corners) {
+    const i = labAt(c);
+    bg[0] += labs[i] / 4;
+    bg[1] += labs[i + 1] / 4;
+    bg[2] += labs[i + 2] / 4;
+  }
+  const dist = (p) => {
+    const i = labAt(p);
+    return Math.hypot(labs[i] - bg[0], labs[i + 1] - bg[1], labs[i + 2] - bg[2]);
+  };
+  if (corners.some((c) => dist(c) >= BG_DELTA)) return img;
+  const chroma = Math.hypot(bg[1], bg[2]);
+  const nearWhite = bg[0] > 0.93 && chroma < 0.04;
+  const nearBlack = bg[0] < 0.2 && chroma < 0.03;
+  if (!nearWhite && !nearBlack) return img;
+  const cut = new Uint8Array(n);
+  const stack = [...corners];
+  let filled = 0;
+  while (stack.length) {
+    const p = stack.pop();
+    if (cut[p] || data[p * 4 + 3] < 250 || dist(p) >= BG_DELTA) continue;
+    cut[p] = 1;
+    filled++;
+    const x = p % w;
+    if (x > 0) stack.push(p - 1);
+    if (x < w - 1) stack.push(p + 1);
+    if (p >= w) stack.push(p - w);
+    if (p < n - w) stack.push(p + w);
+  }
+  if (filled < n * BG_MIN_AREA) return img;
+  const out = copyImage(img);
+  for (let p = 0; p < n; p++) {
+    if (cut[p]) {
+      out.data[p * 4 + 3] = 0;
+      continue;
+    }
+    const x = p % w;
+    const edge = (x > 0 && cut[p - 1]) || (x < w - 1 && cut[p + 1]) || (p >= w && cut[p - w]) || (p < n - w && cut[p + w]);
+    if (edge) out.data[p * 4 + 3] = Math.round(out.data[p * 4 + 3] * smooth(BG_DELTA, 0.2, dist(p)));
+  }
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+  let opaque = 0;
+  for (let p = 0; p < n; p++) {
+    if (out.data[p * 4 + 3] < 128) continue;
+    const x = p % w;
+    const y = (p - x) / w;
+    opaque++;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  if (opaque < n * BG_MIN_OPAQUE) return img;
+  const bw = maxX - minX + 1;
+  const bh = maxY - minY + 1;
+  const side = Math.max(bw, bh, 1);
+  const canvas = Math.max(side, Math.round(side / BG_SAFE));
+  const fitted = makeImage(canvas, canvas);
+  pasteImage(fitted, cropImage(out, minX, minY, bw, bh), Math.floor((canvas - bw) / 2), Math.floor((canvas - bh) / 2));
+  return fitted;
+};
+
 export const PNG_SIG = [0x89, 0x50, 0x4e, 0x47];
 
 export const hasAlphaChannel = (bytes, ext, img) => {
@@ -170,8 +260,10 @@ export const hasAlphaChannel = (bytes, ext, img) => {
 export const normalize = async (bytes, ext) => {
   const decoded = await decodeImage(bytes, ext);
   const opaque = ext === 'svg' ? false : !hasAlphaChannel(bytes, ext, decoded.image);
-  let img = await resizeTo(decoded.image, 192, 192);
-  if (opaque) img = await matteCorners(img);
+  const working = Math.max(decoded.image.width, decoded.image.height) > 512 ? await resizeTo(decoded.image, 512, 512) : decoded.image;
+  const cleaned = await removeFlatBackground(working);
+  let img = await resizeTo(cleaned, 192, 192);
+  if (opaque && cleaned === working) img = await matteCorners(img);
   const original = decoded.image.width <= 1024 && decoded.image.height <= 1024 ? decoded.image : null;
   return { img, srcWidth: decoded.srcWidth, original, ratio: decoded.image.width / decoded.image.height };
 };

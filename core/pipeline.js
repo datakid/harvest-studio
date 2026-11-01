@@ -91,6 +91,8 @@ const finishFrom = async (bytes, source, result) => {
   result.source = source;
 };
 
+export const STALE_SOURCE = 'stale-source';
+
 const useKnown = async (io, r) => {
   let hit;
   try {
@@ -104,6 +106,7 @@ const useKnown = async (io, r) => {
     await finishFrom(hit.bytes, source, r);
     r.status = 'found';
     r.error = null;
+    r.flags = [...(r.flags || []), STALE_SOURCE];
     r.attempts.push({ ...source, status: 'used', reason: 'live fetch failed, using the copy shipped with the app' });
   } catch (e) {
     r.attempts.push({ ...source, status: 'failed', reason: errText(e) });
@@ -544,6 +547,7 @@ export const runHarvest = async (input, options = {}, io) => {
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
         trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
         why: why.get(r.key) || null,
+        ...(r.flags && r.flags.length ? { flags: r.flags } : {}),
         ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),
         ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
         ...(rec && rec.fa ? { fa: rec.fa } : {}),

@@ -112,7 +112,7 @@ const snapshot = () => ({
   cell: state.cell,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
-  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
+  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
   records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
 });
 
@@ -884,6 +884,8 @@ const selectedPanel = () => {
   if (rec.contrast === 'flagged') flags.push(h('span', { class: 'pill bad' }, t('contrastFlagged')));
   if (rec.contrast === 'nudged') flags.push(h('span', { class: 'pill warn' }, t('contrastNudged')));
   if (rec.tight) flags.push(h('span', { class: 'pill warn' }, t('tight')));
+  const stale = (item.flags || []).includes('stale-source');
+  if (stale) flags.push(h('span', { class: 'pill warn', 'data-flag': 'stale-source' }, t('staleSource')), h('button', { class: 'btn', type: 'button', 'data-act': 'retry-live', onClick: () => retryLive(rec) }, t('retryLive')));
   const src = item.source ? (item.source.type + ' ' + (item.source.href || '')).slice(0, 120) : item.error || '-';
   panel.append(
     h(
@@ -922,6 +924,31 @@ const renderInspector = () => {
   if (!el) return;
   clear(el);
   el.append(colourPanel(), selectedPanel());
+};
+
+const retryLive = async (rec) => {
+  const item = state.items.get(rec.key) || {};
+  if (!item.url) return;
+  try {
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
+    const result = await client.call('harvest', { targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback });
+    const next = result.items[0];
+    const payload = result.records.find((r) => r.key === rec.key);
+    if (!payload || !next || (next.flags || []).includes('stale-source')) {
+      toast(t('retryStale'));
+      return;
+    }
+    const fresh = decodeRecord(payload, { name: rec.name });
+    fresh.name = rec.name;
+    state.records.set(rec.key, fresh);
+    state.items.set(rec.key, { ...item, ...next, name: rec.name });
+    state.dirty = true;
+    applyColours();
+    renderMain();
+    toast(t('retryDone'));
+  } catch (e) {
+    toast(t('retryFailed', { why: e.message || String(e) }));
+  }
 };
 
 const replaceImage = async (rec, file) => {

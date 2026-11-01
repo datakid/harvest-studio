@@ -411,6 +411,7 @@ export const runHarvest = async (input, options = {}, io) => {
   const targets = input.targets;
   const overrides = input.overrides || {};
   const pins = input.pins || {};
+  const launcherIds = Array.isArray(input.launcherIds) ? input.launcherIds : null;
   const validKeys = new Set(targets.map((t) => t.key));
   const progress = options.onProgress || (() => {});
 
@@ -560,6 +561,10 @@ export const runHarvest = async (input, options = {}, io) => {
   const sorted = [...records].sort((a, b) => (a.key < b.key ? -1 : 1));
   const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed });
 
+  const marked = new Set(sorted.filter((r) => r.image || r.fa).map((r) => r.key));
+  const unused = launcherIds ? [...marked].filter((k) => !launcherIds.includes(k)).sort() : [];
+  const missing = launcherIds ? launcherIds.filter((k) => !marked.has(k)).sort() : [];
+
   const count = (s) => results.filter((r) => (byKey.get(r.key) ? byKey.get(r.key).status : r.status) === s).length;
   const report = {
     generatedAt: now,
@@ -578,6 +583,8 @@ export const runHarvest = async (input, options = {}, io) => {
     colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
     gate: options.preview ? null : { ok: exported.gate.ok, failures: exported.gate.failures },
+    unused,
+    missing,
     defaults: [...flagged.keys()],
     similarPalette: [...palette.keys()],
     adjusted,

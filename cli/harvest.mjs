@@ -130,7 +130,7 @@ const main = async () => {
   };
 
   const result = await runHarvest(
-    { targets, overrides, pins },
+    { targets, overrides, pins, launcherIds: buildTargets(catalog).map((t) => t.key) },
     { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only },
     io
   );
@@ -164,6 +164,8 @@ const main = async () => {
     const lost = result.report.items.filter((i) => !args.only.includes(i.key) && i.status === 'notfound').map((i) => i.key);
     if (lost.length) console.error('warning: ' + lost.length + ' other keys have no entry in the existing manifest and are left out');
   }
+  for (const k of result.report.unused) console.warn('unused entry: ' + k + ' has a mark but no launcher id');
+  for (const k of result.report.missing) console.warn('missing mark: launcher id ' + k + ' has no manifest entry');
   console.log('');
   console.log(JSON.stringify(result.report.summary));
   if (args.profile === 'launcher') console.log(JSON.stringify(result.report.atlas));

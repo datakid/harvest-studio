@@ -16,7 +16,7 @@ export const buildTargets = (catalog) => {
   const out = [];
   const categories = catalog && Array.isArray(catalog.categories) ? catalog.categories : [];
   for (const cat of categories) {
-    if (!cat || cat.id === 'mine') continue;
+    if (!cat) continue;
     for (const app of Array.isArray(cat.apps) ? cat.apps : []) {
       if (!app || typeof app.id !== 'string' || app.id.startsWith('u-')) continue;
       if (Array.isArray(app.variants) && app.variants.length) {

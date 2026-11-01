@@ -229,8 +229,8 @@ await check('a json file shows what was found and lets the fields be changed', a
   await single.reload();
   await single.setInputFiles('#pick-files', [path.join(fixturesDir, '..', 'links.json')]);
   await single.waitForSelector('.scan');
-  assert.ok(await single.getByText(/Found 32 in launcher catalogue/).count());
-  assert.ok(await single.getByRole('button', { name: 'Harvest 32 icons' }).count());
+  assert.ok(await single.getByText(/Found 34 in launcher catalogue/).count());
+  assert.ok(await single.getByRole('button', { name: 'Harvest 34 icons' }).count());
   await single.reload();
   await single.setInputFiles('#pick-files', [{ name: 'tools.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ tools: [{ name: 'A', homepage: 'https://a.test', logo: 'https://a.test/l.png' }, { name: 'B', homepage: 'https://b.test', logo: 'https://b.test/l.png' }] })) }]);
   await single.waitForSelector('.scan select');

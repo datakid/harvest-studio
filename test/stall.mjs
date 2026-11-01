@@ -16,7 +16,7 @@ const page = '<html><head><link rel="icon" type="image/png" href="/i.png"></head
 
 const run = (targets, io, options = {}) => runHarvest({ targets, overrides: {} }, { profile: 'launcher', mode: 'follow', now: NOW, preview: true, ...options }, { readLocal: async () => null, readOverride: async () => null, readOutput: async () => null, sleep: async () => {}, ...io });
 
-await check('a timed-out page is tried once and the same host is not probed again', async () => {
+await check('a timed-out page is retried once and the same host is not probed again', async () => {
   const calls = [];
   const r = await run([target()], {
     fetchBytes: async (url) => {
@@ -24,9 +24,10 @@ await check('a timed-out page is tried once and the same host is not probed agai
       throw Object.assign(new Error('proxy: upstream timed out'), { timeout: true });
     }
   });
-  assert.deepEqual(calls, [SITE]);
+  assert.deepEqual(calls, [SITE, SITE]);
   const item = r.report.items[0];
   assert.equal(item.status, 'notfound');
+  assert.equal(item.attempts.filter((a) => a.type === 'page' && a.status === 'failed').length, 2);
   assert.ok(item.attempts.some((a) => /skipped/.test(a.reason)));
 });
 
@@ -39,12 +40,15 @@ await check('other errors are retried once, not three times', async () => {
   assert.equal(calls.length, 2);
 });
 
-await check('timeouts and fatal errors are never retried', async () => {
-  for (const flag of ['timeout', 'fatal']) {
-    let n = 0;
-    await assert.rejects(fetchRetry({ sleep: async () => {}, fetchBytes: async () => { n++; throw Object.assign(new Error('x'), { [flag]: true }); } }, SITE));
-    assert.equal(n, 1, flag);
-  }
+await check('fatal errors are never retried and a timeout is retried exactly once', async () => {
+  let fatalCalls = 0;
+  await assert.rejects(fetchRetry({ sleep: async () => {}, fetchBytes: async () => { fatalCalls++; throw Object.assign(new Error('x'), { fatal: true }); } }, SITE));
+  assert.equal(fatalCalls, 1);
+  let timeoutCalls = 0;
+  const seen = [];
+  await assert.rejects(fetchRetry({ sleep: async () => {}, fetchBytes: async () => { timeoutCalls++; throw Object.assign(new Error('x'), { timeout: true }); } }, SITE, undefined, { onTimeout: (e) => seen.push(e.message) }));
+  assert.equal(timeoutCalls, 2);
+  assert.deepEqual(seen, ['x']);
 });
 
 await check('a site that never answers is given up on after the deadline and the others finish', async () => {

@@ -15,6 +15,18 @@ const prefs = loadPrefs();
 setLang(prefs.lang);
 const client = createClient();
 let proxyToken = loadToken();
+let builtInProxy = false;
+const proxyReady = fetch('/api/fetch?probe=1')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((d) => {
+    builtInProxy = !!(d && d.ok && d.mode === 'public');
+  })
+  .catch(() => {});
+const proxySettings = async () => {
+  await proxyReady;
+  if (prefs.proxyUrl) return { proxyUrl: prefs.proxyUrl, proxyToken };
+  return { proxyUrl: builtInProxy ? '/api/fetch' : '', proxyToken: '' };
+};
 
 const state = {
   stage: 'intake',
@@ -307,7 +319,7 @@ const openManifest = async () => {
   try {
     const files = {};
     for (const [name, f] of b.files) files[name] = new Uint8Array(await f.arrayBuffer());
-    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     const result = await client.call('importManifest', { manifest: b.manifest.data, files });
     state.seed = result.seed || DEFAULT_SEED;
     state.cell = result.cell;
@@ -364,7 +376,7 @@ const startHarvest = async () => {
   state.progress = { done: 0, total: targets.length, phase: 'fetch' };
   renderMain();
   try {
-    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     state.seed = state.seed || DEFAULT_SEED;
     const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback }, {
       onProgress: (p) => {
@@ -449,7 +461,7 @@ const openProject = async (meta) => {
   state.progress = { done: 0, total: 1, phase: 'fetch' };
   renderMain();
   try {
-    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     await client.call('restore', { records: payload.records });
     Object.assign(prefs, payload.settings || {});
     prefs.paletteColors = cleanPalette(prefs.paletteColors).length ? cleanPalette(prefs.paletteColors) : ['#f0475c'];
@@ -958,7 +970,7 @@ const openExport = () => {
   };
 
   const run = async (type, payload) => {
-    await client.call('configure', { wasmBase: '/wasm/', settings: { proxyUrl: prefs.proxyUrl, proxyToken } });
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     return client.call('build', { patches: patches(), seed: state.seed, cell: state.cell || undefined, ...payload, kind: type });
   };
 
@@ -1032,6 +1044,7 @@ const openSettings = () => {
       'div',
       { class: 'dlg' },
       h('header', null, h('h2', { id: 'set-title' }, t('proxyTitle')), h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('close'), onClick: () => dlg.close() }, icon('close'))),
+      h('p', { class: 'hint-text', id: 'px-status' }, !prefs.proxyUrl && builtInProxy ? t('proxyBuiltIn') : prefs.proxyUrl ? t('proxyCustom') : t('proxyNone')),
       h('p', { class: 'hint-text' }, t('proxyBody')),
       h('div', { class: 'field' }, h('label', { for: 'px-url' }, t('proxyUrl')), url),
       h('div', { class: 'field' }, h('label', { for: 'px-token' }, t('proxyToken')), token, h('p', { class: 'hint-text' }, t('proxyTokenNote'))),

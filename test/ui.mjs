@@ -30,11 +30,12 @@ const server = await serve(4181, proxy);
 const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
-const open = async (viewport, scheme = 'light') => {
+const open = async (viewport, scheme = 'light', before = null) => {
   const ctx = await browser.newContext({ viewport, colorScheme: scheme, acceptDownloads: true });
   const page = await ctx.newPage();
   page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && logs.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
+  if (before) await before(page);
   await page.goto('http://localhost:4181/');
   return page;
 };
@@ -250,7 +251,7 @@ await check('names given as language objects follow a language picker in the imp
   assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
 });
 
-const noProxy = await open({ width: 1200, height: 800 });
+const noProxy = await open({ width: 1200, height: 800 }, 'light', (p) => p.route(/api\/fetch\?probe=1/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, mode: 'token' }) })));
 await check('a site that cannot be reached without a proxy is named in a notice next to the images that worked', async () => {
   await noProxy.setInputFiles('#pick-files', files.slice(0, 2));
   await noProxy.waitForSelector('.chip');

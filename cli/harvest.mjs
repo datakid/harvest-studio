@@ -3,7 +3,7 @@ import './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runHarvest, buildTargets, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead } from '../core/index.js';
+import { runHarvest, buildTargets, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
@@ -76,9 +76,19 @@ const main = async () => {
   await fs.mkdir(args.out, { recursive: true });
   const io = {
     fetchBytes: async (url, options = {}) => {
-      const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 LinkExpressIconBot' } });
+      let res;
+      try {
+        res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(15000), headers: { 'User-Agent': 'Mozilla/5.0 LinkExpressIconBot' } });
+      } catch (err) {
+        if (err && err.name === 'TimeoutError') {
+          const e = new Error('timed out after 15 seconds');
+          e.timeout = true;
+          throw e;
+        }
+        throw err;
+      }
       const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: res.headers.get('x-vercel-mitigated') };
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: res.headers.get('x-vercel-mitigated'), protection: netlifyProtection(res.status, headersReader(res.headers)) };
     },
     readLocal: async (key) => {
       for (const ext of RASTER_EXT) {

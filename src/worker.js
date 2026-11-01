@@ -15,6 +15,8 @@ import {
   stableStringify,
   readHead,
   urlIdentity,
+  netlifyProtection,
+  headersReader,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
@@ -47,24 +49,34 @@ const makeIo = () => ({
       try {
         res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT) });
       } catch (err) {
-        const e = new Error(err && err.name === 'TimeoutError' ? 'timed out after ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'needs the fetch proxy: this site does not allow direct browser access');
+        if (err && err.name === 'TimeoutError') {
+          const e = new Error('timed out after ' + FETCH_TIMEOUT / 1000 + ' seconds');
+          e.timeout = true;
+          throw e;
+        }
+        const e = new Error('needs the fetch proxy: this site does not allow direct browser access');
         e.fatal = true;
         throw e;
       }
       const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null };
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null, protection: netlifyProtection(res.status, headersReader(res.headers)) };
     }
     const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
     let res;
     try {
       res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
     } catch (err) {
-      const e = new Error(err && err.name === 'TimeoutError' ? 'the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'could not reach the proxy');
+      if (err && err.name === 'TimeoutError') {
+        const e = new Error('the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds');
+        e.timeout = true;
+        throw e;
+      }
+      const e = new Error('could not reach the proxy');
       e.fatal = true;
       throw e;
     }
     if (res.status === 401) {
-      const e = new Error('the proxy rejected the access token');
+      const e = new Error(settings.proxyToken ? 'the proxy rejected the access token' : 'the proxy needs an access token for this site, and serves only the known sites without one; add a proxy address and access token in Settings');
       e.fatal = true;
       throw e;
     }
@@ -83,7 +95,7 @@ const makeIo = () => ({
       throw e;
     }
     const upstream = Number(res.headers.get('x-upstream-status')) || res.status;
-    return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
+    return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated'), protection: res.headers.get('x-upstream-protection') };
   },
   readLocal: async () => null,
   readKnown: async (key, url) => {

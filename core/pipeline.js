@@ -10,6 +10,7 @@ import { unpackAtlas, DEFAULT_CELL } from './atlas.js';
 import { buildLauncherExport, buildLegacyExport, stableStringify } from './profiles.js';
 import { decodeImage } from './decode.js';
 import { KEY_RE, buildTargets, extrasToTargets, mergeTargets } from './targets.js';
+import { PROTECTION_NETLIFY, NETLIFY_PROTECTED_MESSAGE } from './protection.js';
 
 export const BLOCK_STATUS = new Set([401, 403, 429]);
 export const CHALLENGE_RE = /security checkpoint|just a moment|attention required|authentication required|vercel\.com\/sso-api|_vercel\/(jwt|sso)|cf-chl|challenge-platform|x-vercel-challenge|checking your browser/i;
@@ -17,18 +18,27 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
-export const TARGET_TIMEOUT_MS = 25000;
+export const TARGET_TIMEOUT_MS = 30000;
+export const TIMEOUT_RETRY_MS = 1500;
+export const ICON_RETRY_MS = 500;
 const TICK_MS = 2500;
 
-export const fetchRetry = async (io, url, options) => {
+const pause = (io, ms) => (io.sleep ? io.sleep(ms) : new Promise((r) => setTimeout(r, ms)));
+
+export const fetchRetry = async (io, url, options, hooks = {}) => {
   let last;
   for (let i = 0; i < 2; i++) {
     try {
       return await io.fetchBytes(url, options);
     } catch (e) {
       last = e;
-      if (e && (e.fatal || e.timeout)) throw e;
-      if (i < 1) await (io.sleep ? io.sleep(500) : new Promise((r) => setTimeout(r, 500)));
+      if (e && e.fatal) throw e;
+      if (i < 1) {
+        if (e && e.timeout) {
+          if (hooks.onTimeout) hooks.onTimeout(e);
+          await pause(io, hooks.timeoutDelayMs === undefined ? TIMEOUT_RETRY_MS : hooks.timeoutDelayMs);
+        } else await pause(io, 500);
+      }
     }
   }
   throw last;
@@ -162,21 +172,33 @@ export const processTarget = async (t, ctx) => {
   let pageOk = false;
   let pageDown = false;
   let base = t.url;
+  const pageTimeouts = [];
+  const noteRetries = (list, at) => {
+    for (const e of list.splice(0)) result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
+  };
+  const pageAt = { type: 'page', href: short(t.url) };
   try {
-    const res = await fetchRetry(io, t.url, { head: true });
+    const res = await fetchRetry(io, t.url, { head: true }, { timeoutDelayMs: TIMEOUT_RETRY_MS, onTimeout: (e) => pageTimeouts.push(e) });
     base = res.url || t.url;
-    if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge') {
+    const retried = pageTimeouts.length > 0;
+    noteRetries(pageTimeouts, pageAt);
+    if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge' || res.protection) {
+      const netlify = res.protection === PROTECTION_NETLIFY;
       result.status = 'blocked';
-      result.error = 'HTTP ' + res.status + ' challenge or protection page';
-      result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
+      result.protected = netlify;
+      result.error = netlify ? NETLIFY_PROTECTED_MESSAGE : 'HTTP ' + res.status + ' challenge or protection page';
+      result.attempts.push({ ...pageAt, status: 'blocked', reason: result.error });
       return result;
     }
+    if (retried) result.attempts.push({ ...pageAt, status: 'used', reason: 'retry after timeout' });
     html = text(res.bytes);
     pageOk = res.ok;
   } catch (e) {
     pageDown = true;
+    const retried = pageTimeouts.length > 0;
     errors.push('page: ' + errText(e));
-    result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
+    noteRetries(pageTimeouts, pageAt);
+    result.attempts.push({ ...pageAt, status: 'failed', reason: retried ? 'retry after timeout: ' + errText(e) : errText(e) });
   }
   base = readBaseHref(html, base);
   const pageHost = hostOf(base);
@@ -199,29 +221,35 @@ export const processTarget = async (t, ctx) => {
         result.attempts.push({ ...at, status: 'failed', reason: 'skipped, the site did not answer' });
         continue;
       }
+      const timeouts = [];
+      const candidateIo = { fetchBytes: (u) => fetchRetry(io, u, undefined, { timeoutDelayMs: ICON_RETRY_MS, onTimeout: (e) => timeouts.push(e) }) };
       try {
-        const bytes = await loadHref(c.href, fetchIo);
+        const bytes = await loadHref(c.href, candidateIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
         if (!ext) throw new Error('not an image');
         const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
         if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
+        const retried = timeouts.length > 0;
+        noteRetries(timeouts, at);
         if (bad) {
           lastBad = { bad, source: at };
           errors.push(c.type + ': ' + bad);
           result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
-        result.attempts.push({ ...at, status: 'used', reason: null });
+        result.attempts.push({ ...at, status: 'used', reason: retried ? 'retry after timeout' : null });
         result.source = at;
         result.image = img;
         result.original = original;
         result.status = 'found';
         return result;
       } catch (e) {
+        const retried = timeouts.length > 0;
+        noteRetries(timeouts, at);
         errors.push(c.type + ': ' + errText(e));
-        result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
+        result.attempts.push({ ...at, status: 'failed', reason: retried ? 'retry after timeout: ' + errText(e) : errText(e) });
       }
     }
   }
@@ -375,7 +403,7 @@ export const runHarvest = async (input, options = {}, io) => {
   const traceQueue = [];
   for (const r of results) {
     const prev = previous.prev.get(r.key) || null;
-    if (!local && !prev && io.readKnown && !r.image && !r.fa && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
+    if (!local && !prev && io.readKnown && !r.image && !r.fa && !r.protected && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
     const rec = recordOf(r);
     if (r.image) {
       rec.image = r.image;

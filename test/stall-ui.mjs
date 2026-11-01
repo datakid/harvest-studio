@@ -98,8 +98,8 @@ await check('every site is harvested even though one hangs, one is refused and o
   assert.equal(result.items[SLOW].source, 'png');
 });
 
-await check('the hung site costs one timeout, not several in a row', () => {
-  assert.ok(elapsed < 14000, 'took ' + elapsed + ' ms');
+await check('the hung site costs one timeout and one retry, not several in a row', () => {
+  assert.ok(elapsed < 22000, 'took ' + elapsed + ' ms');
 });
 
 await check('the progress text names the sites it is still waiting for', () => {

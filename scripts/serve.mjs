@@ -14,6 +14,11 @@ export const serve = (port = 4173, apiHandler = null) =>
     const server = http.createServer(async (req, res) => {
       const url = new URL(req.url, 'http://localhost');
       if (apiHandler && url.pathname.startsWith('/api/')) return apiHandler(req, res, url);
+      if (url.pathname.startsWith('/api/')) {
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        res.end(JSON.stringify({ ok: false, mode: 'none' }));
+        return;
+      }
       let file = path.join(dist, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname));
       if (!file.startsWith(dist)) {
         res.writeHead(403).end();
@@ -32,6 +37,7 @@ export const serve = (port = 4173, apiHandler = null) =>
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT) || 4173;
-  await serve(port);
+  const { default: apiHandler } = await import('../api/fetch.js');
+  await serve(port, apiHandler);
   console.log('http://localhost:' + port);
 }

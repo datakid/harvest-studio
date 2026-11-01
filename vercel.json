@@ -14,5 +14,5 @@
     { "source": "/wasm/(.*)", "headers": [{ "key": "Content-Type", "value": "application/wasm" }, { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
     { "source": "/fonts/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
   ],
-  "functions": { "api/fetch.js": { "maxDuration": 15 } }
+  "functions": { "api/fetch.js": { "maxDuration": 15, "includeFiles": "api/known-hosts.json" } }
 }

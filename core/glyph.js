@@ -1,6 +1,6 @@
 import { smooth } from './color.js';
 import { makeImage, cropImage, extendImage, resizeTo } from './pixels.js';
-import { rasterSvg } from './codecs.js';
+import { rasterSvg, resizeKernel } from './codecs.js';
 import { lazyInit, utf8 } from './runtime.js';
 
 export const solve3 = (m, v) => {
@@ -262,12 +262,13 @@ export const parsePath = (d) => {
   return segs;
 };
 
-const fmt = (v) => {
-  const r = Math.round(v * 10) / 10;
+const fmt = (v, digits = 1) => {
+  const scale = 10 ** digits;
+  const r = Math.round(v * scale) / scale;
   return Object.is(r, -0) ? '0' : String(r);
 };
 
-export const emitPath = (segs, map) => {
+export const emitPath = (segs, map, digits = 1) => {
   let out = '';
   for (const s of segs) {
     if (s.t === 'Z') out += 'Z';
@@ -275,7 +276,7 @@ export const emitPath = (segs, map) => {
       const pts = [];
       for (let k = 0; k < s.p.length; k += 2) {
         const [x, y] = map(s.p[k], s.p[k + 1]);
-        pts.push(fmt(x), fmt(y));
+        pts.push(fmt(x, digits), fmt(y, digits));
       }
       out += s.t + pts.join(' ');
     }
@@ -283,13 +284,13 @@ export const emitPath = (segs, map) => {
   return out;
 };
 
-export const toViewBoxPath = (svg, size) => {
+export const toViewBoxPath = (svg, size, digits = 1) => {
   const t = /translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)\s*scale\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)/.exec(svg);
   const [tx, ty, sx, sy] = t ? [Number(t[1]), Number(t[2]), Number(t[3]), Number(t[4])] : [0, 0, 1, 1];
   const k = 24 / size;
   const ds = [...svg.matchAll(/\sd="([^"]+)"/g)].map((m) => m[1]);
   if (!ds.length) return '';
-  return ds.map((d) => emitPath(parsePath(d), (x, y) => [(x * sx + tx) * k, (y * sy + ty) * k])).join('');
+  return ds.map((d) => emitPath(parsePath(d), (x, y) => [(x * sx + tx) * k, (y * sy + ty) * k], digits)).join('');
 };
 
 export const maskOf = (img) => {
@@ -311,10 +312,89 @@ export const iou = (a, b) => {
 
 export const symbolMarkup = (key, d) => `<symbol id="g-${key}" viewBox="0 0 24 24"><path d="${d}"/></symbol>`;
 
-export const traceGlyph = async (glyph, key) => {
-  const mask = maskOf(glyph);
-  const { width: w, height: h } = glyph;
-  const bw = new Uint8ClampedArray(w * h * 4);
+export const TRACE_B = Object.freeze({ turdsize: 4, alphamax: 1.2, opticurve: 1, opttolerance: 0.4, extractcolors: false });
+export const TRACE_SIZE = 256;
+export const IOU_CLEAN = 0.92;
+export const CLEAN_MAX_BYTES = 2048;
+export const CLEAN_MAX_SUBPATHS = 12;
+
+export const otsuThreshold = (values) => {
+  const hist = new Float64Array(256);
+  for (const v of values) hist[v]++;
+  const total = values.length;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let wB = 0;
+  let sumB = 0;
+  let best = -1;
+  let level = THRESHOLD;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) {
+      best = between;
+      level = t;
+    }
+  }
+  return Math.min(192, Math.max(64, level + 1));
+};
+
+const dilate = (mask, w, h) => {
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let on = 0;
+      for (let dy = -1; dy <= 1 && !on; dy++) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= h) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = x + dx;
+          if (xx >= 0 && xx < w && mask[yy * w + xx]) {
+            on = 1;
+            break;
+          }
+        }
+      }
+      out[y * w + x] = on;
+    }
+  }
+  return out;
+};
+
+const erode = (mask, w, h) => {
+  const inverted = mask.map((v) => 1 - v);
+  return dilate(inverted, w, h).map((v) => 1 - v);
+};
+
+const subPaths = (d) => (d.match(/M/gi) || []).length;
+
+const upscaledLuma = async (glyph) => {
+  const size = TRACE_SIZE;
+  const big = glyph.width === size ? glyph : await resizeKernel(glyph, size, size, 'catrom');
+  const lum = new Uint8Array(size * size);
+  for (let p = 0; p < lum.length; p++) {
+    const i = p * 4;
+    lum[p] = Math.round(((0.299 * big.data[i] + 0.587 * big.data[i + 1] + 0.114 * big.data[i + 2]) * big.data[i + 3]) / 255);
+  }
+  return lum;
+};
+
+const traceMask = (lum, cleaned) => {
+  const size = TRACE_SIZE;
+  let mask;
+  if (cleaned) {
+    const level = otsuThreshold(lum);
+    mask = lum.map((v) => (v >= level ? 1 : 0));
+    mask = dilate(erode(mask, size, size), size, size);
+    mask = erode(dilate(mask, size, size), size, size);
+  } else mask = lum.map((v) => (v >= THRESHOLD ? 1 : 0));
+  const bw = new Uint8ClampedArray(size * size * 4);
   for (let p = 0; p < mask.length; p++) {
     const v = mask[p] ? 0 : 255;
     bw[p * 4] = v;
@@ -322,22 +402,58 @@ export const traceGlyph = async (glyph, key) => {
     bw[p * 4 + 2] = v;
     bw[p * 4 + 3] = 255;
   }
+  return new ImageData(bw, size, size);
+};
+
+export const traceGlyph = async (glyph, key) => {
+  const mask = maskOf(glyph);
+  const { width: w, height: h } = glyph;
+  const luma = await upscaledLuma(glyph);
+  const inputs = { cleaned: traceMask(luma, true), plain: traceMask(luma, false) };
   const potrace = await potraceReady();
-  const traced = await potrace(new ImageData(bw, w, h), { ...TRACE });
-  const raw = toViewBoxPath(traced, w);
-  if (!raw) return { accepted: false, reason: 'empty trace', d: null, symbol: null, bytes: 0, iou: 0 };
   const optimize = await svgoReady();
-  const optimised = optimize(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${raw}"/></svg>`, {
-    multipass: true,
-    plugins: [{ name: 'preset-default', params: { overrides: { convertPathData: { floatPrecision: 1 } } } }]
-  });
-  const m = /\sd="([^"]+)"/.exec(optimised.data);
-  const d = m ? m[1] : raw;
-  const symbol = symbolMarkup(key, d);
-  const bytes = utf8(symbol).length;
-  const raster = await rasterSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${w}" height="${h}"><path d="${d}"/></svg>`, { width: w });
-  const score = iou(mask, maskOf(raster));
+  const traced = new Map();
+  const tracedWith = async (variant, options) => {
+    const id = variant + (options === TRACE ? 'a' : 'b');
+    if (!traced.has(id)) traced.set(id, await potrace(inputs[variant], { ...options }));
+    return traced.get(id);
+  };
+  const candidate = async (variant, options, digits) => {
+    const raw = toViewBoxPath(await tracedWith(variant, options), TRACE_SIZE, digits);
+    if (!raw) return null;
+    const optimised = optimize(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${raw}"/></svg>`, {
+      multipass: true,
+      plugins: [{ name: 'preset-default', params: { overrides: { convertPathData: { floatPrecision: digits } } } }]
+    });
+    const m = /\sd="([^"]+)"/.exec(optimised.data);
+    const d = m ? m[1] : raw;
+    const symbol = symbolMarkup(key, d);
+    const bytes = utf8(symbol).length;
+    const raster = await rasterSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${w}" height="${h}"><path d="${d}"/></svg>`, { width: w });
+    return { d, symbol, bytes, iou: iou(mask, maskOf(raster)), subPaths: subPaths(d) };
+  };
+  const better = (a, b) => {
+    if (!a) return b;
+    if (!b) return a;
+    const fitsA = a.bytes <= SYMBOL_MAX_BYTES;
+    const fitsB = b.bytes <= SYMBOL_MAX_BYTES;
+    if (fitsA !== fitsB) return fitsA ? a : b;
+    const ia = Math.round(a.iou * 10000);
+    const ib = Math.round(b.iou * 10000);
+    if (ia !== ib) return ia > ib ? a : b;
+    return b.bytes < a.bytes ? b : a;
+  };
+  let best = null;
+  const order = [];
+  for (const digits of [1, 2]) for (const variant of ['cleaned', 'plain']) for (const options of [TRACE, TRACE_B]) order.push([variant, options, digits]);
+  for (const [variant, options, digits] of order) {
+    best = better(best, await candidate(variant, options, digits));
+    if (best && best.iou >= IOU_MIN && best.bytes <= SYMBOL_MAX_BYTES) break;
+  }
+  if (!best) return { accepted: false, reason: 'empty trace', d: null, symbol: null, bytes: 0, iou: 0 };
+  const { d, symbol, bytes, iou: score } = best;
   if (bytes > SYMBOL_MAX_BYTES) return { accepted: false, reason: 'symbol over ' + SYMBOL_MAX_BYTES + ' bytes', d, symbol, bytes, iou: score };
-  if (score < IOU_MIN) return { accepted: false, reason: 'trace IoU below ' + IOU_MIN, d, symbol, bytes, iou: score };
-  return { accepted: true, reason: null, d, symbol, bytes, iou: score };
+  if (score >= IOU_MIN) return { accepted: true, reason: null, d, symbol, bytes, iou: score };
+  if (score >= IOU_CLEAN && d.length < CLEAN_MAX_BYTES && best.subPaths <= CLEAN_MAX_SUBPATHS) return { accepted: true, reason: null, clean: true, d, symbol, bytes, iou: score };
+  return { accepted: false, reason: 'trace IoU below ' + IOU_MIN, d, symbol, bytes, iou: score };
 };

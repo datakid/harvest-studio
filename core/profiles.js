@@ -1,6 +1,6 @@
 import { gzipSync, zipSync } from 'fflate';
 import { sha256, canonicalJson, utf8 } from './runtime.js';
-import { packAtlas, encodeAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
+import { packAtlas, encodeAtlas, encodeMaskAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
 import { symbolMarkup, SYMBOL_MAX_BYTES } from './glyph.js';
 import { resizeTo } from './pixels.js';
 import { encodePng, resizeStretch } from './codecs.js';
@@ -64,7 +64,7 @@ export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, genera
   const atlasPack = await packAtlas(withImage.map((r) => ({ key: r.key, image: r.image })), cell);
   const atlasEnc = withImage.length ? await encodeAtlas(atlasPack.image) : null;
   const glyphPack = rejected.length ? await packAtlas(rejected.map((r) => ({ key: r.key, image: r.glyphImage })), cell) : null;
-  const glyphEnc = glyphPack ? await encodeAtlas(glyphPack.image) : null;
+  const glyphEnc = glyphPack ? await encodeMaskAtlas(glyphPack.image) : null;
   const sprite = buildSprite(records);
   const spriteBytes = utf8(sprite);
   const spriteHash = await hash8(spriteBytes);

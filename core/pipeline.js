@@ -599,7 +599,7 @@ export const runHarvest = async (input, options = {}, io) => {
         error: r.error,
         tint: rec ? rec.tint : null,
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
-        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
+        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason, ...(rec.trace.clean ? { clean: true } : {}) } : null,
         why: why.get(r.key) || null,
         ...(r.flags && r.flags.length ? { flags: r.flags } : {}),
         ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),

@@ -32,6 +32,7 @@ const state = {
   stage: 'intake',
   pending: { urlText: '', files: [], jsons: [], bundle: { manifest: null, files: new Map() } },
   projects: [],
+  pins: {},
   projectId: null,
   projectName: '',
   cell: null,
@@ -110,6 +111,7 @@ let saveTimer = 0;
 const snapshot = () => ({
   seed: state.seed,
   cell: state.cell,
+  pins: state.pins,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
   items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
@@ -378,7 +380,7 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback }, {
+    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
       onProgress: (p) => {
         state.progress = p;
         updateProgress();
@@ -468,6 +470,7 @@ const openProject = async (meta) => {
     save();
     state.seed = payload.seed || DEFAULT_SEED;
     state.cell = payload.cell || null;
+    state.pins = payload.pins && typeof payload.pins === 'object' ? payload.pins : {};
     adopt({ records: payload.records, items: payload.items }, (k) => (payload.items.find((i) => i.key === k) || {}).name || k);
     state.selected = payload.selected && state.records.has(payload.selected) ? payload.selected : null;
     state.stage = 'work';
@@ -898,23 +901,24 @@ const selectedPanel = () => {
       h('dt', null, t('source')),
       h('dd', null, rec.faviconUrl ? h('span', { class: 'favicon-chip', style: { display: 'inline-grid', 'vertical-align': 'middle', 'margin-inline-end': '8px' } }, h('img', { src: rec.faviconUrl, alt: '' })) : null, src)
     ),
-    ...[attemptsList(item.attempts)].filter(Boolean)
+    ...[attemptsList(rec, item.attempts)].filter(Boolean)
   );
   return panel;
 };
 
-const attemptsList = (attempts) =>
+const attemptsList = (rec, attempts) =>
   attempts && attempts.length
     ? h(
         'details',
-        { class: 'attempts' },
+        { class: 'attempts', open: !!pinnedHref(rec) },
         h('summary', null, t('attempts', { n: attempts.length })),
         h(
           'ol',
           null,
           ...attempts.map((a) =>
-            h('li', null, h('span', { class: 'pill' + (a.status === 'used' ? ' ok' : ' warn') }, t('attempt' + a.status[0].toUpperCase() + a.status.slice(1))), ' ', h('b', null, a.type), ' ', h('span', { class: 'href', dir: 'ltr' }, a.href), a.reason ? h('span', { class: 'why' }, ' ' + a.reason) : null)
-          )
+            h('li', null, h('span', { class: 'pill' + (a.status === 'used' ? ' ok' : ' warn') }, t('attempt' + a.status[0].toUpperCase() + a.status.slice(1))), ' ', h('b', null, a.type), ' ', h('span', { class: 'href', dir: 'ltr' }, a.href), a.reason ? h('span', { class: 'why' }, ' ' + a.reason) : null, pinnable(a) ? h('button', { class: 'btn quiet', type: 'button', 'data-act': 'pin', onClick: () => pinAttempt(rec, a) }, t('useThisOne')) : null)
+          ),
+          pinnedHref(rec) ? h('li', { class: 'pinned' }, h('span', { class: 'pill ok' }, t('pinned')), ' ', h('span', { class: 'href', dir: 'ltr' }, pinnedHref(rec)), h('button', { class: 'btn quiet', type: 'button', 'data-act': 'copy-pin', onClick: () => copyPin(rec) }, t('copyPin')), h('button', { class: 'btn quiet', type: 'button', 'data-act': 'unpin', onClick: () => unpin(rec) }, t('unpin'))) : null
         )
       )
     : null;
@@ -926,12 +930,35 @@ const renderInspector = () => {
   el.append(colourPanel(), selectedPanel());
 };
 
-const retryLive = async (rec) => {
+const pinnable = (a) => /^https?:\/\//i.test(a.href || '') && a.status !== 'blocked';
+
+const pinnedHref = (rec) => (state.pins[rec.key] && state.pins[rec.key].href) || null;
+
+const copyPin = async (rec) => {
+  await navigator.clipboard.writeText(JSON.stringify({ [rec.key]: { href: pinnedHref(rec) } }, null, 2));
+  toast(t('copied'));
+};
+
+const pinAttempt = async (rec, a) => {
+  state.pins = { ...state.pins, [rec.key]: { href: a.href } };
+  await reharvest(rec, 'pinDone');
+};
+
+const unpin = async (rec) => {
+  const next = { ...state.pins };
+  delete next[rec.key];
+  state.pins = next;
+  await reharvest(rec, 'unpinDone');
+};
+
+const retryLive = (rec) => reharvest(rec, 'retryDone');
+
+const reharvest = async (rec, doneKey) => {
   const item = state.items.get(rec.key) || {};
   if (!item.url) return;
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    const result = await client.call('harvest', { targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback });
+    const result = await client.call('harvest', { targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
     const next = result.items[0];
     const payload = result.records.find((r) => r.key === rec.key);
     if (!payload || !next || (next.flags || []).includes('stale-source')) {
@@ -941,11 +968,11 @@ const retryLive = async (rec) => {
     const fresh = decodeRecord(payload, { name: rec.name });
     fresh.name = rec.name;
     state.records.set(rec.key, fresh);
-    state.items.set(rec.key, { ...item, ...next, name: rec.name });
+    state.items.set(rec.key, { ...item, ...next, flags: next.flags || [], name: rec.name });
     state.dirty = true;
     applyColours();
     renderMain();
-    toast(t('retryDone'));
+    toast(t(doneKey));
   } catch (e) {
     toast(t('retryFailed', { why: e.message || String(e) }));
   }

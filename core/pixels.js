@@ -235,6 +235,44 @@ export const removeFlatBackground = async (img) => {
   return fitted;
 };
 
+export const highFrequencyShare = (img) => {
+  const { width: w, height: h, data } = img;
+  const lum = (i) => 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  let solid = 0;
+  let busy = 0;
+  for (let y = 0; y < h - 1; y++) {
+    for (let x = 0; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      if (data[i + 3] < 128) continue;
+      solid++;
+      const gx = lum(i + 4) - lum(i);
+      const gy = lum(i + w * 4) - lum(i);
+      if (Math.abs(gx) + Math.abs(gy) > 24) busy++;
+    }
+  }
+  return solid ? busy / solid : 0;
+};
+
+export const chromaticColours = (img) => {
+  const bins = new Map();
+  let solid = 0;
+  for (let i = 0; i < img.data.length; i += 4) {
+    if (img.data[i + 3] < 200) continue;
+    solid++;
+    const [, a, b] = toOklab(img.data[i], img.data[i + 1], img.data[i + 2]);
+    if (Math.hypot(a, b) < 0.04) continue;
+    const key = (img.data[i] >> 5) + ',' + (img.data[i + 1] >> 5) + ',' + (img.data[i + 2] >> 5);
+    bins.set(key, (bins.get(key) || 0) + 1);
+  }
+  return [...bins.values()].filter((n) => n >= solid * 0.01).length;
+};
+
+export const opaqueShare = (img) => {
+  let n = 0;
+  for (let i = 3; i < img.data.length; i += 4) if (img.data[i] > 127) n++;
+  return n / (img.width * img.height);
+};
+
 export const PNG_SIG = [0x89, 0x50, 0x4e, 0x47];
 
 export const hasAlphaChannel = (bytes, ext, img) => {

@@ -1,6 +1,6 @@
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
-import { normalize, gate } from './pixels.js';
+import { normalize, gate, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
 import { imageToLab, extractGradient, extractAccent, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph } from './glyph.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
@@ -17,6 +17,16 @@ export const CHALLENGE_RE = /security checkpoint|just a moment|attention require
 export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'avif', 'jxl'];
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
+
+const PHOTO_SHARE = 0.4;
+
+const hasSvgLink = (links) => links.some((l) => l.rel.includes('icon') && (/svg/i.test(l.type || '') || /\.svg(?:[?#]|$)/i.test(l.href || '')));
+
+const isRichSvg = (img) => {
+  if (chromaticColours(img) >= 2) return true;
+  const share = opaqueShare(img);
+  return share >= 0.04 && share <= 0.92;
+};
 
 export const TARGET_TIMEOUT_MS = 30000;
 export const TIMEOUT_RETRY_MS = 1500;
@@ -114,7 +124,7 @@ const useKnown = async (io, r) => {
 };
 
 export const processTarget = async (t, ctx) => {
-  const { io, overrides = {}, local = false } = ctx;
+  const { io, overrides = {}, pins = {}, local = false } = ctx;
   const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
   if (!KEY_RE.test(t.key)) {
     result.error = 'key is not safe for a file name';
@@ -164,6 +174,23 @@ export const processTarget = async (t, ctx) => {
   } catch (e) {
     result.error = errText(e);
     return result;
+  }
+  const pin = pins[t.key];
+  if (pin && typeof pin.href === 'string' && pin.href) {
+    const at = { type: 'pinned', href: short(pin.href) };
+    const timeouts = [];
+    try {
+      const bytes = await loadHref(pin.href, { fetchBytes: (u) => fetchRetry(io, u, undefined, { timeoutDelayMs: ICON_RETRY_MS, onTimeout: (e) => timeouts.push(e) }) });
+      if (!bytes || !bytes.length) throw new Error('empty');
+      await finishFrom(bytes, at, result);
+      result.status = 'found';
+      result.attempts.push({ ...at, status: 'used', reason: 'pinned source' });
+      return result;
+    } catch (e) {
+      result.attempts.push({ ...at, status: 'failed', reason: 'pinned source failed: ' + errText(e) });
+      result.image = null;
+      result.source = null;
+    }
   }
   if (!t.url) {
     result.error = 'no url';
@@ -215,9 +242,19 @@ export const processTarget = async (t, ctx) => {
   const fetchIo = { fetchBytes: (u) => fetchRetry(io, u), attempt: (a) => result.attempts.push(a) };
   let lastBad = null;
   const tried = new Set();
+  let held = null;
+  const accept = (found) => {
+    result.attempts.push({ ...found.at, status: 'used', reason: found.reason });
+    result.source = found.at;
+    result.image = found.img;
+    result.original = found.original;
+    result.status = 'found';
+    return result;
+  };
   for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk })) {
     for (const c of await group()) {
       if (tried.has(c.href)) continue;
+      if (held && c.type !== 'svg') continue;
       tried.add(c.href);
       const at = { type: c.type, href: short(c.href) };
       if (pageDown && pageHost && hostOf(c.href) === pageHost) {
@@ -242,12 +279,20 @@ export const processTarget = async (t, ctx) => {
           result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
-        result.attempts.push({ ...at, status: 'used', reason: retried ? 'retry after timeout' : null });
-        result.source = at;
-        result.image = img;
-        result.original = original;
-        result.status = 'found';
-        return result;
+        if (held) {
+          if (isRichSvg(img)) {
+            result.attempts.push({ ...held.at, status: 'rejected', reason: held.why });
+            return accept({ at, img, original, reason: 'preferred svg over jpeg touch icon' });
+          }
+          result.attempts.push({ ...at, status: 'rejected', reason: 'plain svg, kept the touch icon' });
+          continue;
+        }
+        const reason = retried ? 'retry after timeout' : null;
+        if (c.type === 'apple-touch-icon' && (ext === 'jpg' || highFrequencyShare(img) > PHOTO_SHARE) && hasSvgLink(links)) {
+          held = { at, img, original, reason, why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
+          continue;
+        }
+        return accept({ at, img, original, reason });
       } catch (e) {
         const retried = timeouts.length > 0;
         noteRetries(timeouts, at);
@@ -256,6 +301,7 @@ export const processTarget = async (t, ctx) => {
       }
     }
   }
+  if (held) return accept(held);
   if (lastBad) result.source = lastBad.source;
   result.error = errors.slice(-3).join('; ') || 'no icon found';
   return result;
@@ -364,6 +410,7 @@ export const runHarvest = async (input, options = {}, io) => {
   const now = options.now || new Date().toISOString();
   const targets = input.targets;
   const overrides = input.overrides || {};
+  const pins = input.pins || {};
   const validKeys = new Set(targets.map((t) => t.key));
   const progress = options.onProgress || (() => {});
 
@@ -386,7 +433,7 @@ export const runHarvest = async (input, options = {}, io) => {
         return { key: t.key, url: t.url, status: 'skipped' };
       }
       inflight.add(t.key);
-      const run = processTarget(t, { io, overrides, local });
+      const run = processTarget(t, { io, overrides, pins, local });
       const r = limit ? await withDeadline(t, run, limit) : await run;
       inflight.delete(t.key);
       progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status, pending: [...inflight] });

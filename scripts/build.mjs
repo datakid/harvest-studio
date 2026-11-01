@@ -80,6 +80,7 @@ await fs.writeFile(path.join(dist, 'known', 'urls.json'), JSON.stringify(knownBy
 await fs.copyFile(path.join(root, 'config', 'catalogue.json'), path.join(dist, 'catalogue.json'));
 await fs.copyFile(path.join(root, 'config', 'fihrist.json'), path.join(dist, 'fihrist.json'));
 await fs.copyFile(path.join(root, 'config', 'extras.json'), path.join(dist, 'extras.json'));
+await fs.copyFile(path.join(root, 'config', 'source-pins.json'), path.join(dist, 'source-pins.json'));
 await writeKnownHosts(root);
 
 let css = '';

@@ -60,6 +60,7 @@ const main = async () => {
   const overridesPath = path.join(studioDir, 'config', 'icon-overrides.json');
   const extrasPath = path.join(studioDir, 'config', 'extras.json');
   const overrides = await readJson(overridesPath, {});
+  const pins = await readJson(path.join(studioDir, 'config', 'source-pins.json'), {});
   const extras = extrasToTargets(await readJson(extrasPath, {}));
   const targets = mergeTargets(buildTargets(catalog), extras);
   const shippedCatalogue = await readJson(path.join(studioDir, 'config', 'catalogue.json'), { categories: [] });
@@ -129,7 +130,7 @@ const main = async () => {
   };
 
   const result = await runHarvest(
-    { targets, overrides },
+    { targets, overrides, pins },
     { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only },
     io
   );

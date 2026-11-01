@@ -23,6 +23,7 @@ import {
 
 const FETCH_TIMEOUT = 20000;
 let wasmBase = './wasm/';
+let shippedPins = null;
 configureRuntime({
   wasmSource: async (id) => {
     const res = await fetch(wasmBase + id + '.wasm');
@@ -143,8 +144,10 @@ const handlers = {
 
   async harvest(p, post) {
     const targets = p.targets.map((t) => ({ ...t }));
+    shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+    const pins = { ...(await shippedPins), ...(p.pins || {}) };
     const result = await runHarvest(
-      { targets, overrides: {} },
+      { targets, overrides: {}, pins },
       { profile: 'launcher', seed: p.seed, mode: 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
       makeIo()
     );

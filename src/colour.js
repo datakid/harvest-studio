@@ -7,14 +7,14 @@ export const randomSeed = () => {
   return a[0].toString(16).padStart(8, '0');
 };
 
-export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary }) => {
+export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary, only = null }) => {
   const list = [...records.values()].filter((r) => r.hasImage);
   const appOf = new Map(list.map((r) => [r.key, r.appId]));
   const groupOf = new Map(list.filter((r) => r.groupId).map((r) => [r.key, r.groupId]));
   const entries = {};
   const lockedEntries = {};
   for (const r of list) {
-    if (r.locked) lockedEntries[r.key] = { tint: r.tint, locked: true };
+    if (r.locked || (only && !only.has(r.key))) lockedEntries[r.key] = { tint: r.tint, locked: true };
     else entries[r.key] = { tint: r.base, locked: false, colour: r.colour || null };
   }
   const separate = mode === 'separate';
@@ -26,6 +26,7 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread, pal
   const tight = new Set(res.tight || []);
   const grouped = new Set((res.groups || []).flat());
   for (const r of list) {
+    if (only && !only.has(r.key)) continue;
     const e = all[r.key];
     r.tint = e.tint || null;
     r.sourceTint = r.locked ? r.sourceTint : e.sourceTint || r.base || null;

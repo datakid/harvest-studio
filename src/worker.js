@@ -139,6 +139,55 @@ const serialise = async (rec) => {
   return payload;
 };
 
+let reportItems = new Map();
+
+const summarise = () => {
+  const items = [...reportItems.values()];
+  const count = (status) => items.filter((i) => i.status === status).length;
+  return { total: items.length, found: count('found'), override: count('override'), stale: count('stale'), blocked: count('blocked'), default: count('default'), notfound: count('notfound') };
+};
+
+const runBatch = async (p, post) => {
+  const targets = p.targets.map((t) => ({ ...t }));
+  shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const pins = { ...(await shippedPins), ...(p.pins || {}) };
+  const result = await runHarvest(
+    { targets, overrides: {}, pins },
+    {
+      profile: 'launcher',
+      seed: p.seed,
+      mode: p.mode === 'separate' ? 'separate' : 'keep',
+      preview: true,
+      faFallback: !!p.faFallback,
+      cell: p.cell || DEFAULT_CELL,
+      now: new Date().toISOString(),
+      onProgress: (e) => post({ progress: e }),
+      onTarget: async (r) => {
+        if (!r.image) return;
+        post({ progress: { phase: 'tile', key: r.key, favicon: await pngOf(r.image) } });
+      }
+    },
+    makeIo()
+  );
+  for (const r of result.records) records.set(r.key, r);
+  for (const i of result.report.items) reportItems.set(i.key, i);
+  lastReport = { ...result.report, items: [...reportItems.values()].sort((a, b) => (a.key < b.key ? -1 : 1)), summary: summarise() };
+  const out = [];
+  for (const r of result.records) out.push(await serialise(r));
+  const transfer = [];
+  for (const r of out) {
+    if (r.favicon) transfer.push(r.favicon.buffer);
+    if (r.glyph) transfer.push(r.glyph.buffer);
+  }
+  return { value: { records: out, items: result.report.items, summary: result.report.summary, polish: result.report.polish }, transfer };
+};
+
+const restoreOne = async (r) => {
+  const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
+  const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
+  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null });
+};
+
 const handlers = {
   async configure(p) {
     if (p.wasmBase) wasmBase = p.wasmBase;
@@ -147,24 +196,26 @@ const handlers = {
   },
 
   async harvest(p, post) {
-    const targets = p.targets.map((t) => ({ ...t }));
-    shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
-    const pins = { ...(await shippedPins), ...(p.pins || {}) };
-    const result = await runHarvest(
-      { targets, overrides: {}, pins },
-      { profile: 'launcher', seed: p.seed, mode: p.mode === 'separate' ? 'separate' : 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
-      makeIo()
-    );
-    records = new Map(result.records.map((r) => [r.key, r]));
-    lastReport = result.report;
-    const out = [];
-    for (const r of result.records) out.push(await serialise(r));
-    const transfer = [];
-    for (const r of out) {
-      if (r.favicon) transfer.push(r.favicon.buffer);
-      if (r.glyph) transfer.push(r.glyph.buffer);
+    if (p.reset !== false) {
+      records = new Map();
+      reportItems = new Map();
     }
-    return { value: { records: out, items: result.report.items, summary: result.report.summary, polish: result.report.polish }, transfer };
+    return runBatch(p, post);
+  },
+
+  async add(p, post) {
+    return runBatch(p, post);
+  },
+
+  async remove(p) {
+    records.delete(p.key);
+    reportItems.delete(p.key);
+    return { ok: true, count: records.size };
+  },
+
+  async put(p) {
+    await restoreOne(p.record);
+    return { ok: true, count: records.size };
   },
 
   async importManifest(p) {
@@ -204,23 +255,8 @@ const handlers = {
 
   async restore(p) {
     records = new Map();
-    for (const r of p.records) {
-      const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
-      const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
-      records.set(r.key, {
-        key: r.key,
-        appId: r.appId,
-        status: r.status,
-        image,
-        glyphImage,
-        trace: r.trace || null,
-        base: r.base || null,
-        tint: r.tint || null,
-        sourceTint: r.sourceTint || null,
-        locked: !!r.locked,
-        hash: r.hash || null
-      });
-    }
+    reportItems = new Map();
+    for (const r of p.records) await restoreOne(r);
     return { ok: true, count: records.size };
   },
 

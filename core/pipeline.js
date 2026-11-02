@@ -457,6 +457,7 @@ export const runHarvest = async (input, options = {}, io) => {
       const run = processTarget(t, { io, overrides, pins, local });
       const r = limit ? await withDeadline(t, run, limit) : await run;
       inflight.delete(t.key);
+      if (options.onTarget) await options.onTarget(r);
       progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status, pending: [...inflight] });
       return r;
     });

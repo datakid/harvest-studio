@@ -241,3 +241,13 @@ pre.code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(-
 .pstrip { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: var(--r-card); }
 .pstrip.light { background: #f4f5f8; }
 .pstrip.dark { background: #13151b; }
+
+.addbar { display: grid; gap: 10px; margin-block-end: 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); }
+.addbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.addbar input[type="text"] { flex: 1 1 220px; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--r-item); background: var(--bg); color: var(--ink); font: inherit; }
+.addbar .adding { color: var(--muted); font-size: 13px; margin-inline-start: auto; }
+.drop-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px); border: 3px dashed var(--amber); pointer-events: none; }
+.drop-overlay div { display: grid; gap: 10px; justify-items: center; font-size: 18px; }
+.toast { pointer-events: none; }
+.toast .toast-act { pointer-events: auto; margin-inline-start: 14px; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; min-height: 32px; padding: 0 4px; }
+.toast div { pointer-events: auto; }

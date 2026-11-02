@@ -10,6 +10,7 @@ import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED, similarPairs } from '../core/tints.js';
 import { PRESETS, HARMONIES, harmony, cleanPalette } from '../core/palettes.js';
 import { listProjects, saveProject, loadProject, removeProject, newId } from './projects.js';
+import { classify, keepBoth, notPresent } from './add.js';
 
 const prefs = loadPrefs();
 setLang(prefs.lang);
@@ -47,17 +48,31 @@ const state = {
   error: null,
   bloom: false,
   dirty: true,
+  unsaved: false,
+  adding: 0,
+  chain: Promise.resolve(),
   ghosts: 0
 };
+
+let renderSeq = 0;
 
 const app = document.getElementById('app');
 const save = () => savePrefs(prefs);
 
-const toast = (message) => {
+const toast = (message, { label = null, onAction = null, ms = 3200 } = {}) => {
   document.querySelectorAll('.toast').forEach((n) => n.remove());
-  const el = h('div', { class: 'toast', role: 'status' }, h('div', null, message));
+  const el = h('div', { class: 'toast', role: 'status' }, h('div', null, message, label ? h('button', { class: 'toast-act', type: 'button', 'data-act': 'toast-action', onClick: () => { el.remove(); onAction(); } }, label) : null));
   document.body.append(el);
-  setTimeout(() => el.remove(), 3200);
+  setTimeout(() => el.remove(), ms);
+};
+
+const announce = (message) => {
+  let live = document.getElementById('live');
+  if (!live) {
+    live = h('div', { id: 'live', class: 'sr', 'aria-live': 'polite', role: 'status' });
+    document.body.append(live);
+  }
+  live.textContent = message;
 };
 
 const download = (bytes, name, type = 'application/zip') => {
@@ -100,13 +115,15 @@ const decodeRecord = (r, item) => {
   return rec;
 };
 
-const applyColours = () => {
-  const res = recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary });
+const applyColours = (only = null) => {
+  const res = recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary, only });
   scheduleSave();
   return res;
 };
 
 let saveTimer = 0;
+
+const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
 
 const snapshot = () => ({
   seed: state.seed,
@@ -116,20 +133,24 @@ const snapshot = () => ({
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
   items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
-  records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
+  records: [...state.records.values()].filter((r) => r.hasImage || !r.ghost).map(recordPayload)
 });
+
+const writeProject = async () => {
+  const imaged = [...state.records.values()].filter((r) => r.hasImage);
+  const meta = { id: state.projectId, name: state.projectName, updatedAt: Date.now(), count: imaged.length, dots: imaged.slice(0, 8).map((r) => (r.tint && r.tint[0]) || '#8c95b6') };
+  if (await saveProject(meta, snapshot())) {
+    state.unsaved = false;
+    state.projects = await listProjects();
+    window.__studio.saved = (window.__studio.saved || 0) + 1;
+  }
+};
 
 const scheduleSave = () => {
   if (state.stage !== 'work' || !state.projectId) return;
+  state.unsaved = true;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    const imaged = [...state.records.values()].filter((r) => r.hasImage);
-    const meta = { id: state.projectId, name: state.projectName, updatedAt: Date.now(), count: imaged.length, dots: imaged.slice(0, 8).map((r) => (r.tint && r.tint[0]) || '#8c95b6') };
-    if (await saveProject(meta, snapshot())) {
-      state.projects = await listProjects();
-      window.__studio.saved = (window.__studio.saved || 0) + 1;
-    }
-  }, 700);
+  saveTimer = setTimeout(writeProject, 700);
 };
 
 const defaultName = () => t('projectDefault', { n: [...state.records.values()].filter((r) => r.hasImage).length });
@@ -151,6 +172,7 @@ const enterWork = (primed = false) => {
   state.projectId = newId();
   state.projectName = defaultName();
   if (!primed) applyColours();
+  else scheduleSave();
   renderMain();
 };
 
@@ -482,7 +504,6 @@ const openProject = async (meta) => {
     launcherBuild = null;
     state.projectId = meta.id;
     state.projectName = meta.name;
-    applyColours();
     renderAll();
   } catch (e) {
     state.stage = 'intake';
@@ -652,8 +673,8 @@ const cellEl = (rec, i) => {
     { style: { '--i': i } },
     h(
       'button',
-      { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), onClick: () => select(rec.key) },
-      rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: { animation: 'none' } }),
+      { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key, renderId: String(++renderSeq) }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), onClick: () => select(rec.key) },
+      rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: rec.ghost ? {} : { animation: 'none' } }),
       h('span', { class: 'name', dir: 'auto' }, rec.name),
       flag ? h('span', { class: 'flag ' + flag, title: reasonOf(rec) }, icon('warn', { size: 11, stroke: 2.4 })) : null
     )
@@ -694,7 +715,7 @@ const gridKeys = (e) => {
 const stats = () => {
   const list = [...state.records.values()].filter((r) => r.hasImage);
   const glyphs = list.filter((r) => r.mask).length;
-  const review = [...state.records.values()].filter((r) => contrastFlag(r) || !r.hasImage).length;
+  const review = [...state.records.values()].filter((r) => contrastFlag(r) || (!r.hasImage && !r.ghost)).length;
   return { n: list.length, glyphs, review };
 };
 
@@ -736,6 +757,341 @@ const openPolish = () => {
   dlg.showModal();
 };
 
+const existingUrls = () => new Map([...state.records.keys()].map((k) => [k, (state.items.get(k) || {}).url || null]));
+
+const galleryEl = () => document.querySelector('.gallery');
+
+const placeCell = (rec) => {
+  const gallery = galleryEl();
+  if (!gallery) return;
+  const old = gallery.querySelector('.cell[data-key="' + CSS.escape(rec.key) + '"]');
+  const li = cellEl(rec, 0);
+  li.style.removeProperty('--i');
+  if (old) {
+    old.parentElement.replaceWith(li);
+    return;
+  }
+  const next = [...gallery.querySelectorAll('.cell')].find((c) => c.dataset.key > rec.key);
+  if (next) gallery.insertBefore(li, next.parentElement);
+  else gallery.append(li);
+};
+
+const dropCell = (key) => {
+  const gallery = galleryEl();
+  const old = gallery && gallery.querySelector('.cell[data-key="' + CSS.escape(key) + '"]');
+  if (old) old.parentElement.remove();
+};
+
+const ghostFor = (t) => ({ key: t.key, appId: t.appId || t.key, status: 'pending', hasImage: false, ghost: true, name: t.name || t.key, base: null, tint: null, locked: false, trace: null });
+
+const askCollisions = (same) =>
+  new Promise((resolve) => {
+    const dlg = h('dialog', { 'aria-labelledby': 'col-title', id: 'collide-dialog' });
+    let choice = 'skip';
+    const pick = (v) => () => {
+      choice = v;
+      dlg.close();
+    };
+    const shown = same.slice(0, 8);
+    dlg.append(
+      h(
+        'div',
+        { class: 'dlg' },
+        h('header', null, h('h2', { id: 'col-title' }, t('collideTitle'))),
+        h('p', { class: 'hint-text' }, t('collideBody', { n: same.length })),
+        h('ul', { class: 'dups' }, shown.map((x) => h('li', null, h('b', { dir: 'auto' }, x.name || x.key), x.url ? h('span', { class: 'href', dir: 'ltr' }, x.url) : null))),
+        h(
+          'div',
+          { class: 'actions-end' },
+          h('button', { class: 'btn quiet', id: 'collide-skip', type: 'button', onClick: pick('skip') }, t('collideSkip')),
+          h('button', { class: 'btn', id: 'collide-both', type: 'button', onClick: pick('both') }, t('collideBoth')),
+          h('button', { class: 'btn primary', id: 'collide-update', type: 'button', onClick: pick('update') }, t('collideUpdate'))
+        )
+      )
+    );
+    dlg.addEventListener('close', () => {
+      dlg.remove();
+      resolve(choice);
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+
+const runAdd = async (targets, updating) => {
+  state.adding += 1;
+  refreshAddBar();
+  const names = new Map(targets.map((x) => [x.key, x.name || x.key]));
+  try {
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
+    const result = await client.call('add', { targets, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
+      onProgress: (p) => {
+        if (p.phase !== 'tile') return;
+        const rec = state.records.get(p.key);
+        if (!rec || !rec.ghost) return;
+        rec.faviconUrl = URL.createObjectURL(new Blob([p.favicon], { type: 'image/png' }));
+        rec.hasImage = true;
+        placeCell(rec);
+        refreshPairs();
+      }
+    });
+    const before = new Map(updating.map((x) => [x.key, state.records.get(x.key)]));
+    const added = [];
+    for (const item of result.items) {
+      const prev = state.items.get(item.key) || {};
+      state.items.set(item.key, { ...prev, ...item, name: names.get(item.key) || prev.name || item.key });
+    }
+    for (const payload of result.records) {
+      const name = names.get(payload.key) || payload.key;
+      const fresh = decodeRecord(payload, { name });
+      fresh.name = name;
+      const old = before.get(payload.key);
+      if (old && old.locked && old.tint) {
+        fresh.locked = true;
+        fresh.tint = old.tint;
+      }
+      state.records.set(payload.key, fresh);
+      added.push(payload.key);
+    }
+    for (const t of targets) if (!state.records.get(t.key) || state.records.get(t.key).ghost) state.records.set(t.key, { ...ghostFor(t), ghost: false, status: 'notfound' });
+    applyColours(new Set(added.filter((k) => !(before.get(k) && before.get(k).locked))));
+    for (const k of targets.map((x) => x.key)) {
+      const rec = state.records.get(k);
+      if (rec) placeCell(rec);
+    }
+    state.polish = result.polish ? { ...result.polish, safeArea: Math.min(state.polish ? state.polish.safeArea : 1, result.polish.safeArea), rounded: Math.min(state.polish ? state.polish.rounded : 1, result.polish.rounded) } : state.polish;
+    state.dirty = true;
+    refreshPairs();
+    refreshExportCount();
+    scheduleSave();
+    const found = added.filter((k) => state.records.get(k) && state.records.get(k).hasImage);
+    announce(found.length === 1 ? t('addedTile', { name: state.records.get(found[0]).name }) : t('addedBatch', { n: found.length }));
+    const unreached = result.items.filter((i) => i.error && /needs the fetch proxy/.test(i.error)).length;
+    if (unreached) toast(t('proxyMissingSome', { n: unreached }));
+    if (state.selected && state.stage === 'work') renderInspector();
+  } catch (e) {
+    for (const t of targets) {
+      const rec = state.records.get(t.key);
+      if (rec && rec.ghost) {
+        state.records.delete(t.key);
+        state.order = state.order.filter((k) => k !== t.key);
+        dropCell(t.key);
+      }
+    }
+    toast(t('addFailed', { why: e.message || String(e) }));
+  } finally {
+    state.adding -= 1;
+    refreshAddBar();
+  }
+};
+
+const addTargets = async (incoming) => {
+  if (!incoming.length) {
+    toast(t('addNothing'));
+    return;
+  }
+  const existing = existingUrls();
+  const { fresh, same, renamed } = classify(incoming, existing);
+  let targets = fresh;
+  let updating = [];
+  if (same.length) {
+    const choice = await askCollisions(same);
+    if (choice === 'update') {
+      updating = same;
+      targets = [...fresh, ...same];
+    } else if (choice === 'both') targets = [...fresh, ...keepBoth(same, new Map([...existing, ...fresh.map((x) => [x.key, x.url || null])]))];
+  }
+  if (!targets.length) return;
+  for (const r of renamed) toast(t('renamedNote', { from: r.from, to: r.to }));
+  const updatingKeys = new Set(updating.map((x) => x.key));
+  for (const x of targets) {
+    if (updatingKeys.has(x.key)) continue;
+    state.records.set(x.key, ghostFor(x));
+    state.items.set(x.key, { key: x.key, name: x.name || x.key, url: x.url || null, status: 'pending', flags: [], attempts: [] });
+  }
+  state.order = [...state.records.keys()].sort();
+  for (const x of targets) {
+    if (!updatingKeys.has(x.key)) placeCell(state.records.get(x.key));
+  }
+  state.chain = state.chain.then(() => runAdd(targets, updating));
+  await state.chain;
+};
+
+const addFromFiles = async (files) => {
+  const pending = { urlText: '', files: [], jsons: [], bundle: { manifest: null, files: new Map() } };
+  for (const f of files) {
+    if (isJsonFile(f)) {
+      try {
+        const j = await readJsonFile(f, getLang());
+        if (j.scan && j.scan.count > 0) pending.jsons.push(j);
+        else toast(t('badJson') + ' ' + f.name);
+      } catch {
+        toast(t('badJson') + ' ' + f.name);
+      }
+    } else if (isImageFile(f)) pending.files.push(f);
+  }
+  if (!pendingCount(pending)) return;
+  await addTargets(await buildTargets(pending));
+};
+
+const addFromUrls = async (text) => {
+  if (!parseUrls(text).length) return false;
+  await addTargets(await buildTargets({ urlText: text, files: [], jsons: [], bundle: { manifest: null, files: new Map() } }));
+  return true;
+};
+
+const addSets = async (which) => {
+  const sets = [];
+  if ((which === 'launcher' || which === 'both') && state.catalogue) sets.push(launcherSet());
+  if ((which === 'fihrist' || which === 'both') && state.fihrist) sets.push(fihristSet());
+  const all = await buildTargets({ urlText: '', files: [], jsons: sets, bundle: { manifest: null, files: new Map() } });
+  const fresh = notPresent(all, existingUrls());
+  if (!fresh.length) {
+    toast(t('addNothing'));
+    return;
+  }
+  await addTargets(fresh);
+};
+
+const setCount = (which) => {
+  const sets = [];
+  if ((which === 'launcher' || which === 'both') && state.catalogue) sets.push(launcherSet());
+  if ((which === 'fihrist' || which === 'both') && state.fihrist) sets.push(fihristSet());
+  const keys = new Set(sets.flatMap((x) => x.scan.targets.map((y) => y.key)));
+  return [...keys].filter((k) => !state.records.has(k)).length;
+};
+
+const addBar = () => {
+  const bar = h('form', { class: 'addbar', id: 'add-bar', role: 'search', 'aria-label': t('addBarLabel'), onSubmit: async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('add-urls');
+    const text = input.value;
+    if (!parseUrls(text).length) return;
+    input.value = '';
+    await addFromUrls(text);
+  } });
+  bar.append(
+    h('div', { class: 'addbar-row' },
+      h('input', { id: 'add-urls', type: 'text', placeholder: t('addUrlPlaceholder'), 'aria-label': t('addUrlPlaceholder'), spellcheck: false, autocapitalize: 'off', autocomplete: 'off', inputmode: 'url' }),
+      h('button', { class: 'btn primary', id: 'add-go', type: 'submit' }, icon('plus', { size: 16 }), t('add'))
+    ),
+    h('div', { class: 'addbar-row addbar-actions' },
+      h('button', { class: 'btn', id: 'add-files', type: 'button', onClick: () => document.getElementById('add-pick-files').click() }, icon('image', { size: 16 }), t('addFiles')),
+      h('button', { class: 'btn', id: 'add-folder', type: 'button', onClick: () => document.getElementById('add-pick-folder').click() }, icon('folder', { size: 16 }), t('addFolder')),
+      h('button', { class: 'btn', id: 'add-json', type: 'button', onClick: () => document.getElementById('add-pick-json').click() }, icon('upload', { size: 16 }), t('addJson')),
+      state.catalogue ? h('button', { class: 'btn', id: 'add-launcher', type: 'button', onClick: () => addSets('launcher') }, t('addLauncher', { n: setCount('launcher') })) : null,
+      state.fihrist ? h('button', { class: 'btn', id: 'add-fihrist', type: 'button', onClick: () => addSets('fihrist') }, t('addFihrist', { n: setCount('fihrist') })) : null,
+      state.catalogue && state.fihrist ? h('button', { class: 'btn', id: 'add-both', type: 'button', onClick: () => addSets('both') }, t('addBoth', { n: setCount('both') })) : null,
+      h('span', { class: 'adding', id: 'adding', role: 'status' }, state.adding ? t('working') : '')
+    ),
+    h('input', { id: 'add-pick-files', type: 'file', multiple: true, accept: 'image/*,.ico,.svg', class: 'sr', tabindex: -1, onChange: (e) => { addFromFiles([...e.target.files]); e.target.value = ''; } }),
+    h('input', { id: 'add-pick-folder', type: 'file', webkitdirectory: true, class: 'sr', tabindex: -1, onChange: (e) => { addFromFiles([...e.target.files]); e.target.value = ''; } }),
+    h('input', { id: 'add-pick-json', type: 'file', multiple: true, accept: '.json,application/json', class: 'sr', tabindex: -1, onChange: (e) => { addFromFiles([...e.target.files]); e.target.value = ''; } })
+  );
+  return bar;
+};
+
+const refreshAddBar = () => {
+  const el = document.getElementById('adding');
+  if (el) el.textContent = state.adding ? t('working') : '';
+  document.body.dataset.adding = String(state.adding);
+  for (const [id, which] of [['add-launcher', 'launcher'], ['add-fihrist', 'fihrist'], ['add-both', 'both']]) {
+    const b = document.getElementById(id);
+    if (b) b.textContent = t(id === 'add-launcher' ? 'addLauncher' : id === 'add-fihrist' ? 'addFihrist' : 'addBoth', { n: setCount(which) });
+  }
+};
+
+const removeTile = async (rec) => {
+  const entry = { payload: recordPayload(rec), item: state.items.get(rec.key), name: rec.name, hadImage: rec.hasImage, rec };
+  const index = state.order.indexOf(rec.key);
+  state.records.delete(rec.key);
+  state.items.delete(rec.key);
+  state.order = state.order.filter((k) => k !== rec.key);
+  dropCell(rec.key);
+  if (state.selected === rec.key) {
+    state.selected = state.order[Math.min(index, state.order.length - 1)] || null;
+    document.querySelectorAll('.cell').forEach((c) => c.setAttribute('aria-selected', String(c.dataset.key === state.selected)));
+    renderInspector();
+  }
+  await client.call('remove', { key: rec.key });
+  refreshPairs();
+  refreshExportCount();
+  scheduleSave();
+  announce(t('removedTile', { name: entry.name }));
+  toast(t('removedTile', { name: entry.name }), { label: t('undo'), ms: 8000, onAction: () => restoreTile(entry) });
+};
+
+const restoreTile = async (entry) => {
+  const rec = entry.rec;
+  state.records.set(rec.key, rec);
+  if (entry.item) state.items.set(rec.key, entry.item);
+  state.order = [...state.records.keys()].sort();
+  await client.call('put', { record: entry.payload });
+  placeCell(rec);
+  refreshPairs();
+  refreshExportCount();
+  scheduleSave();
+  announce(t('restoredTile', { name: entry.name }));
+};
+
+const refreshExportCount = () => {
+  const el = document.getElementById('export-btn');
+  if (el) el.lastChild.textContent = t('exportCount', { n: imaged().length });
+  const stat = document.querySelector('.toolbar .stat');
+  if (stat) {
+    const x = stats();
+    stat.replaceChildren(document.createTextNode(t('summary', { n: x.n, g: x.glyphs })), ...(x.review ? [h('small', null, t('review', { n: x.review }))] : []));
+  }
+};
+
+let overlayDepth = 0;
+
+const dropOverlay = (on) => {
+  let el = document.getElementById('drop-overlay');
+  if (on && !el) {
+    el = h('div', { id: 'drop-overlay', class: 'drop-overlay', role: 'presentation' }, h('div', null, icon('upload', { size: 34 }), h('strong', null, t('dropOverlay'))));
+    document.body.append(el);
+  }
+  if (!on && el) el.remove();
+};
+
+const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+
+document.addEventListener('dragenter', (e) => {
+  if (state.stage !== 'work' || !hasFiles(e)) return;
+  e.preventDefault();
+  overlayDepth += 1;
+  dropOverlay(true);
+});
+document.addEventListener('dragover', (e) => {
+  if (state.stage !== 'work' || !hasFiles(e)) return;
+  e.preventDefault();
+});
+document.addEventListener('dragleave', (e) => {
+  if (state.stage !== 'work') return;
+  overlayDepth = Math.max(0, overlayDepth - 1);
+  if (!overlayDepth || !e.relatedTarget) {
+    overlayDepth = 0;
+    dropOverlay(false);
+  }
+});
+document.addEventListener('drop', async (e) => {
+  if (state.stage !== 'work') return;
+  e.preventDefault();
+  overlayDepth = 0;
+  dropOverlay(false);
+  if (!hasFiles(e)) return;
+  await addFromFiles(await filesFromDrop(e.dataTransfer));
+});
+document.addEventListener('paste', (e) => {
+  if (state.stage !== 'work') return;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+  const text = (e.clipboardData && e.clipboardData.getData('text')) || '';
+  if (!parseUrls(text).length) return;
+  e.preventDefault();
+  addFromUrls(text);
+});
+
 const renderToolbar = () => {
   const s = stats();
   return h(
@@ -746,7 +1102,7 @@ const renderToolbar = () => {
     h('button', { class: 'btn quiet pairs', id: 'pairs', type: 'button', 'data-pairs': String(similarNow().length), onClick: openPolish }, icon(similarNow().length ? 'warn' : 'check', { size: 16 }), t('similarPairs', { n: similarNow().length })),
     h('div', { class: 'spacer pv' }, h('span', null, t('previewColors')), seg(t('previewColors'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); renderMain(); })),
     h('div', { class: 'pv' }, h('span', null, t('previewCorners')), seg(t('previewCorners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); renderMain(); })),
-    h('button', { class: 'btn primary', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('export'))
+    h('button', { class: 'btn primary', id: 'export-btn', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('exportCount', { n: s.n }))
   );
 };
 
@@ -761,7 +1117,7 @@ const renderWork = () => {
   const work = h(
     'section',
     { class: 'work' },
-    h('div', null, renderToolbar(), h('div', { class: 'stage' + (state.bloom ? ' bloom' : '') }, gallery), h('div', { class: 'row', style: { 'margin-top': '14px' } }, h('button', { class: 'btn quiet', type: 'button', onClick: startOver }, icon('reset', { size: 16 }), t('startOver')))),
+    h('div', null, addBar(), renderToolbar(), h('div', { class: 'stage' + (state.bloom ? ' bloom' : '') }, gallery), h('div', { class: 'row', style: { 'margin-top': '14px' } }, h('button', { class: 'btn quiet', type: 'button', onClick: startOver }, icon('reset', { size: 16 }), t('startOver')))),
     h('aside', { class: 'inspector', id: 'inspector' })
   );
   if (state.bloom) setTimeout(() => document.querySelectorAll('.stage.bloom').forEach((el) => el.classList.remove('bloom')), 1900);
@@ -769,13 +1125,46 @@ const renderWork = () => {
   return work;
 };
 
-const startOver = () => {
+const confirmStartOver = () =>
+  new Promise((resolve) => {
+    const dlg = h('dialog', { 'aria-labelledby': 'so-title', id: 'startover-dialog' });
+    let ok = false;
+    dlg.append(
+      h(
+        'div',
+        { class: 'dlg' },
+        h('header', null, h('h2', { id: 'so-title' }, t('startOverTitle'))),
+        h('p', { class: 'hint-text' }, t('startOverBody')),
+        h('div', { class: 'actions-end' },
+          h('button', { class: 'btn quiet', id: 'startover-cancel', type: 'button', onClick: () => dlg.close() }, t('dupCancel')),
+          h('button', { class: 'btn primary', id: 'startover-ok', type: 'button', onClick: () => { ok = true; dlg.close(); } }, t('startOverConfirm'))
+        )
+      )
+    );
+    dlg.addEventListener('close', () => {
+      dlg.remove();
+      resolve(ok);
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+  });
+
+const startOver = async () => {
+  if (state.unsaved && !(await confirmStartOver())) return;
+  clearTimeout(saveTimer);
+  const saving = state.projectId && state.stage === 'work' && state.records.size ? writeProject() : Promise.resolve();
   state.stage = 'intake';
   state.pending = { urlText: '', files: [], jsons: [], bundle: { manifest: null, files: new Map() } };
   state.records = new Map();
+  state.items = new Map();
+  state.order = [];
   state.projectId = null;
+  state.unsaved = false;
   state.error = null;
+  client.call('restore', { records: [] });
   renderMain();
+  await saving;
+  if (state.stage === 'intake') renderMain();
 };
 
 const refreshTiles = () => {
@@ -929,11 +1318,19 @@ const selectedPanel = () => {
       h(
         'div',
         { class: 'row' },
-        rec.locked ? h('button', { class: 'btn', type: 'button', onClick: () => { rec.locked = false; applyColours(); refreshTiles(); } }, icon('reset', { size: 16 }), t('reset')) : h('button', { class: 'btn', type: 'button', onClick: () => { rec.locked = true; renderInspector(); } }, icon('lock', { size: 16 }), t('lock')),
+        rec.locked ? h('button', { class: 'btn', type: 'button', onClick: () => { rec.locked = false; applyColours(); refreshTiles(); } }, icon('reset', { size: 16 }), t('reset')) : h('button', { class: 'btn', type: 'button', onClick: () => { rec.locked = true; scheduleSave(); renderInspector(); } }, icon('lock', { size: 16 }), t('lock')),
         h('label', { class: 'btn' }, icon('image', { size: 16 }), t('replaceImage'), h('input', { type: 'file', accept: 'image/*,.ico,.svg', class: 'sr', onChange: (e) => replaceImage(rec, e.target.files[0]) }))
       )
     );
   }
+  panel.append(
+    h(
+      'div',
+      { class: 'row' },
+      item.url ? h('button', { class: 'btn', type: 'button', 'data-act': 'reharvest', onClick: () => reharvest(rec, 'retryDone') }, icon('reset', { size: 16 }), t('reharvest')) : null,
+      h('button', { class: 'btn', type: 'button', 'data-act': 'remove', onClick: () => removeTile(rec) }, icon('trash', { size: 16 }), t('removeTile'))
+    )
+  );
   const glyphLabel = rec.trace && rec.trace.accepted ? t('glyphSymbol', { bytes: rec.trace.bytes }) : rec.mask ? t('glyphAtlas') : t('glyphNone');
   const flags = [];
   if (rec.contrast === 'flagged') flags.push(h('span', { class: 'pill bad' }, t('contrastFlagged')));
@@ -1014,7 +1411,7 @@ const reharvest = async (rec, doneKey) => {
   if (!item.url) return;
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    const result = await client.call('harvest', { targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
+    const result = await client.call('harvest', { reset: false, targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
     const next = result.items[0];
     const payload = result.records.find((r) => r.key === rec.key);
     if (!payload || !next || (next.flags || []).includes('stale-source')) {

@@ -1,5 +1,5 @@
 import { smooth } from './color.js';
-import { makeImage, cropImage, extendImage, resizeTo } from './pixels.js';
+import { makeImage, cropImage, pasteImage, resizeTo } from './pixels.js';
 import { rasterSvg, resizeKernel } from './codecs.js';
 import { lazyInit, utf8 } from './runtime.js';
 
@@ -40,8 +40,56 @@ export const fitBackground = (pts, lab, w, h) => {
 };
 
 export const GLYPH_SIZE = 128;
-export const GLYPH_CONTENT = 104;
-export const GLYPH_PAD = 12;
+export const GLYPH_CONTENT = 92;
+export const GLYPH_PAD = 18;
+export const SAFE_TARGET = GLYPH_CONTENT / GLYPH_SIZE;
+export const SAFE_TOLERANCE = 0.04;
+export const CENTRE_TOLERANCE = 0.03;
+
+export const alphaCentroid = (img) => {
+  let sum = 0;
+  let sx = 0;
+  let sy = 0;
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      const a = img.data[(y * img.width + x) * 4 + 3];
+      sum += a;
+      sx += a * (x + 0.5);
+      sy += a * (y + 0.5);
+    }
+  }
+  return sum ? [sx / sum, sy / sum] : [img.width / 2, img.height / 2];
+};
+
+export const alphaBounds = (img, threshold = 128) => {
+  let minX = img.width;
+  let minY = img.height;
+  let maxX = -1;
+  let maxY = -1;
+  for (let y = 0; y < img.height; y++) {
+    for (let x = 0; x < img.width; x++) {
+      if (img.data[(y * img.width + x) * 4 + 3] < threshold) continue;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return maxX < 0 ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+};
+
+const GLYPH_MARGIN = 6;
+
+const centreOnCentroid = (content) => {
+  const [cx, cy] = alphaCentroid(content);
+  const bounds = alphaBounds(content) || { x: 0, y: 0, width: content.width, height: content.height };
+  const place = (centroid, from, size) => {
+    const want = GLYPH_SIZE / 2 - centroid;
+    return Math.round(Math.min(GLYPH_SIZE - GLYPH_MARGIN - (from + size), Math.max(GLYPH_MARGIN - from, want)));
+  };
+  const out = makeImage(GLYPH_SIZE, GLYPH_SIZE);
+  return pasteImage(out, content, place(cx, bounds.x, bounds.width), place(cy, bounds.y, bounds.height));
+};
 
 export const extractGlyph = async (data, lab, w, h) => {
   const n = w * h;
@@ -124,22 +172,46 @@ export const extractGlyph = async (data, lab, w, h) => {
     return alpha;
   };
 
-  const finish = async (alpha) => {
-    let gx0 = w;
-    let gy0 = h;
-    let gx1 = -1;
-    let gy1 = -1;
-    let on = 0;
-    for (let p = 0; p < n; p++) {
-      if (alpha[p] < 0.5) continue;
-      const x = p % w;
-      const y = (p - x) / w;
-      on++;
-      if (x < gx0) gx0 = x;
-      if (x > gx1) gx1 = x;
-      if (y < gy0) gy0 = y;
-      if (y > gy1) gy1 = y;
+  const robustBounds = (alpha) => {
+    const label = new Int32Array(n).fill(-1);
+    const comps = [];
+    for (let start = 0; start < n; start++) {
+      if (alpha[start] < 0.5 || label[start] >= 0) continue;
+      const id = comps.length;
+      const comp = { area: 0, x0: w, y0: h, x1: -1, y1: -1 };
+      const stack = [start];
+      label[start] = id;
+      while (stack.length) {
+        const p = stack.pop();
+        const x = p % w;
+        const y = (p - x) / w;
+        comp.area++;
+        if (x < comp.x0) comp.x0 = x;
+        if (x > comp.x1) comp.x1 = x;
+        if (y < comp.y0) comp.y0 = y;
+        if (y > comp.y1) comp.y1 = y;
+        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1]) {
+          if (q >= 0 && alpha[q] >= 0.5 && label[q] < 0) {
+            label[q] = id;
+            stack.push(q);
+          }
+        }
+      }
+      comps.push(comp);
     }
+    const total = comps.reduce((s2, c) => s2 + c.area, 0);
+    const kept = comps.filter((c) => c.area >= total * 0.005);
+    const use = kept.length ? kept : comps;
+    return { on: total, x0: Math.min(...use.map((c) => c.x0)), y0: Math.min(...use.map((c) => c.y0)), x1: Math.max(...use.map((c) => c.x1)), y1: Math.max(...use.map((c) => c.y1)) };
+  };
+
+  const finish = async (alpha) => {
+    const found = robustBounds(alpha);
+    const on = found.on;
+    const gx0 = found.x0;
+    const gy0 = found.y0;
+    const gx1 = found.x1;
+    const gy1 = found.y1;
     if (!on) return null;
     const cover = on / n;
     const gfill = on / ((gx1 - gx0 + 1) * (gy1 - gy0 + 1));
@@ -152,7 +224,7 @@ export const extractGlyph = async (data, lab, w, h) => {
       full.data[p * 4 + 3] = Math.round(alpha[p] * 255);
     }
     const cropped = cropImage(full, gx0, gy0, gx1 - gx0 + 1, gy1 - gy0 + 1);
-    return extendImage(await resizeTo(cropped, GLYPH_CONTENT, GLYPH_CONTENT), GLYPH_PAD);
+    return centreOnCentroid(await resizeTo(cropped, GLYPH_CONTENT, GLYPH_CONTENT));
   };
 
   const attempts = fill >= 0.7 ? [uniformAlpha, ringAlpha] : [plainAlpha];
@@ -293,11 +365,27 @@ export const toViewBoxPath = (svg, size, digits = 1) => {
   return ds.map((d) => emitPath(parsePath(d), (x, y) => [(x * sx + tx) * k, (y * sy + ty) * k], digits)).join('');
 };
 
-export const maskOf = (img) => {
+export const maskOf = (img, threshold = THRESHOLD) => {
   const n = img.width * img.height;
   const mask = new Uint8Array(n);
-  for (let p = 0; p < n; p++) mask[p] = img.data[p * 4 + 3] >= THRESHOLD ? 1 : 0;
+  for (let p = 0; p < n; p++) mask[p] = img.data[p * 4 + 3] >= threshold ? 1 : 0;
   return mask;
+};
+
+export const strokeWidth = (mask, w, h) => {
+  let area = 0;
+  let edges = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!mask[y * w + x]) continue;
+      area++;
+      if (x === 0 || !mask[y * w + x - 1]) edges++;
+      if (x === w - 1 || !mask[y * w + x + 1]) edges++;
+      if (y === 0 || !mask[(y - 1) * w + x]) edges++;
+      if (y === h - 1 || !mask[(y + 1) * w + x]) edges++;
+    }
+  }
+  return edges ? (2 * area) / edges : 0;
 };
 
 export const iou = (a, b) => {
@@ -385,15 +473,15 @@ const upscaledLuma = async (glyph) => {
   return lum;
 };
 
-const traceMask = (lum, cleaned) => {
+const traceMask = (lum, cleaned, bias) => {
   const size = TRACE_SIZE;
   let mask;
   if (cleaned) {
-    const level = otsuThreshold(lum);
+    const level = Math.min(230, Math.max(25, otsuThreshold(lum) + bias));
     mask = lum.map((v) => (v >= level ? 1 : 0));
     mask = dilate(erode(mask, size, size), size, size);
     mask = erode(dilate(mask, size, size), size, size);
-  } else mask = lum.map((v) => (v >= THRESHOLD ? 1 : 0));
+  } else mask = lum.map((v) => (v >= THRESHOLD + bias ? 1 : 0));
   const bw = new Uint8ClampedArray(size * size * 4);
   for (let p = 0; p < mask.length; p++) {
     const v = mask[p] ? 0 : 255;
@@ -405,11 +493,11 @@ const traceMask = (lum, cleaned) => {
   return new ImageData(bw, size, size);
 };
 
-export const traceGlyph = async (glyph, key) => {
-  const mask = maskOf(glyph);
+export const traceGlyph = async (glyph, key, { bias = 0 } = {}) => {
+  const mask = maskOf(glyph, THRESHOLD + bias);
   const { width: w, height: h } = glyph;
   const luma = await upscaledLuma(glyph);
-  const inputs = { cleaned: traceMask(luma, true), plain: traceMask(luma, false) };
+  const inputs = { cleaned: traceMask(luma, true, bias), plain: traceMask(luma, false, bias) };
   const potrace = await potraceReady();
   const optimize = await svgoReady();
   const traced = new Map();
@@ -430,7 +518,8 @@ export const traceGlyph = async (glyph, key) => {
     const symbol = symbolMarkup(key, d);
     const bytes = utf8(symbol).length;
     const raster = await rasterSvg(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${w}" height="${h}"><path d="${d}"/></svg>`, { width: w });
-    return { d, symbol, bytes, iou: iou(mask, maskOf(raster)), subPaths: subPaths(d) };
+    const drawn = maskOf(raster);
+    return { d, symbol, bytes, iou: iou(mask, drawn), subPaths: subPaths(d), stroke: strokeWidth(drawn, w, h) };
   };
   const better = (a, b) => {
     if (!a) return b;
@@ -451,9 +540,9 @@ export const traceGlyph = async (glyph, key) => {
     if (best && best.iou >= IOU_MIN && best.bytes <= SYMBOL_MAX_BYTES) break;
   }
   if (!best) return { accepted: false, reason: 'empty trace', d: null, symbol: null, bytes: 0, iou: 0 };
-  const { d, symbol, bytes, iou: score } = best;
-  if (bytes > SYMBOL_MAX_BYTES) return { accepted: false, reason: 'symbol over ' + SYMBOL_MAX_BYTES + ' bytes', d, symbol, bytes, iou: score };
-  if (score >= IOU_MIN) return { accepted: true, reason: null, d, symbol, bytes, iou: score };
-  if (score >= IOU_CLEAN && d.length < CLEAN_MAX_BYTES && best.subPaths <= CLEAN_MAX_SUBPATHS) return { accepted: true, reason: null, clean: true, d, symbol, bytes, iou: score };
-  return { accepted: false, reason: 'trace IoU below ' + IOU_MIN, d, symbol, bytes, iou: score };
+  const { d, symbol, bytes, iou: score, stroke } = best;
+  if (bytes > SYMBOL_MAX_BYTES) return { accepted: false, reason: 'symbol over ' + SYMBOL_MAX_BYTES + ' bytes', d, symbol, bytes, iou: score, stroke };
+  if (score >= IOU_MIN) return { accepted: true, reason: null, d, symbol, bytes, iou: score, stroke };
+  if (score >= IOU_CLEAN && d.length < CLEAN_MAX_BYTES && best.subPaths <= CLEAN_MAX_SUBPATHS) return { accepted: true, reason: null, clean: true, d, symbol, bytes, iou: score, stroke };
+  return { accepted: false, reason: 'trace IoU below ' + IOU_MIN, d, symbol, bytes, iou: score, stroke };
 };

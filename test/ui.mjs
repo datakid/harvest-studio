@@ -78,7 +78,7 @@ await page.waitForTimeout(300);
 await shot(page, 'mono-light');
 
 await check('per-icon colour change locks the icon', async () => {
-  await page.getByRole('radio', { name: 'Follow' }).click();
+  await page.getByRole('radio', { name: 'Separate' }).click();
   await page.locator('.cell').first().click();
   await page.locator('.inspector .picker input').fill('#12b886');
   await page.locator('.inspector .picker input').dispatchEvent('change');

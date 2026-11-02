@@ -95,72 +95,144 @@ export const hueDegrees = (hex) => {
   return ((h * 180) / Math.PI + 360) % 360;
 };
 
-const COLOUR_PASSES = [
-  { minC: 0.04, minL: 0.2, maxL: 0.95, minShare: 0.03 },
-  { minC: 0.1, minL: 0.3, maxL: 0.9, minShare: 0.006 }
-];
+export const KMEANS_K = 5;
+export const KMEANS_ITERATIONS = 8;
+export const COLOUR_GRID = 64;
+export const ACCENT_MIN_CHROMA = 0.03;
+export const ACCENT_MIN_AREA = 0.005;
+export const STRONG_SHARE = 0.03;
+export const GRADIENT_MIN_DELTA = 0.08;
+export const GRADIENT_MIN_AREA = 0.08;
+export const SYNTHETIC_SHIFT = 0.06;
+export const SYNTHETIC_CHROMA = 0.9;
 
-const binChroma = (data, lab, n, pass) => {
-  const bins = Array.from({ length: 24 }, () => ({ w: 0, L: 0, a: 0, b: 0 }));
-  let opaque = 0;
-  let chromatic = 0;
-  for (let p = 0; p < n; p++) {
-    if (data[p * 4 + 3] < 200) continue;
-    opaque++;
-    const L = lab[p * 3];
-    const a = lab[p * 3 + 1];
-    const b = lab[p * 3 + 2];
-    const C = Math.hypot(a, b);
-    if (C < pass.minC || L < pass.minL || L > pass.maxL) continue;
-    chromatic++;
-    const h = (Math.atan2(b, a) + 2 * Math.PI) % (2 * Math.PI);
-    const bin = bins[Math.floor((h / (2 * Math.PI)) * 24) % 24];
-    bin.w += C;
-    bin.L += L * C;
-    bin.a += a * C;
-    bin.b += b * C;
-  }
-  return { bins, opaque, chromatic };
-};
-
-const gradientFrom = (data, lab, n, passes) => {
-  let found = null;
-  for (const pass of passes) {
-    const r = binChroma(data, lab, n, pass);
-    if (r.opaque && r.chromatic / r.opaque >= pass.minShare) {
-      found = r;
-      break;
+const gridPoints = (data, w, h) => {
+  const grid = Math.max(1, Math.min(COLOUR_GRID, w, h));
+  const points = [];
+  for (let gy = 0; gy < grid; gy++) {
+    const y0 = Math.floor((gy * h) / grid);
+    const y1 = Math.max(y0 + 1, Math.floor(((gy + 1) * h) / grid));
+    for (let gx = 0; gx < grid; gx++) {
+      const x0 = Math.floor((gx * w) / grid);
+      const x1 = Math.max(x0 + 1, Math.floor(((gx + 1) * w) / grid));
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let a = 0;
+      let count = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * w + x) * 4;
+          const al = data[i + 3];
+          r += data[i] * al;
+          g += data[i + 1] * al;
+          b += data[i + 2] * al;
+          a += al;
+          count++;
+        }
+      }
+      const weight = a / (count * 255);
+      if (weight < 0.5) continue;
+      const [L, A, B] = toOklab(r / a, g / a, b / a);
+      points.push({ L, a: A, b: B, w: weight, edge: gx < 2 || gy < 2 || gx >= grid - 2 || gy >= grid - 2 });
     }
   }
-  if (!found) return null;
-  const { bins } = found;
-  let best = 0;
-  let bestW = -1;
-  for (let i = 0; i < 24; i++) {
-    const w = bins[(i + 23) % 24].w + bins[i].w + bins[(i + 1) % 24].w;
-    if (w > bestW) {
-      bestW = w;
-      best = i;
-    }
-  }
-  let sw = 0;
-  let sa = 0;
-  let sb = 0;
-  for (const j of [(best + 23) % 24, best, (best + 1) % 24]) {
-    sw += bins[j].w;
-    sa += bins[j].a;
-    sb += bins[j].b;
-  }
-  const a = sa / sw;
-  const b = sb / sw;
-  const h = Math.atan2(b, a);
-  const c = Math.min(Math.max(Math.hypot(a, b), 0.06), 0.16);
-  return tintFromOklch(c, h);
+  return points;
 };
 
-export const extractGradient = (data, lab, n) => gradientFrom(data, lab, n, COLOUR_PASSES.slice(0, 1));
+const labDistance = (p, c) => Math.hypot(p.L - c.L, p.a - c.a, p.b - c.b);
 
-export const extractAccent = (data, lab, n) => gradientFrom(data, lab, n, COLOUR_PASSES.slice(1));
+const seedCentres = (points, k) => {
+  let first = 0;
+  for (let i = 1; i < points.length; i++) if (points[i].w > points[first].w) first = i;
+  const centres = [{ L: points[first].L, a: points[first].a, b: points[first].b }];
+  const near = points.map((p) => labDistance(p, centres[0]));
+  while (centres.length < k) {
+    let pick = -1;
+    let far = 1e-6;
+    for (let i = 0; i < points.length; i++) {
+      if (near[i] > far) {
+        far = near[i];
+        pick = i;
+      }
+    }
+    if (pick < 0) break;
+    const c = { L: points[pick].L, a: points[pick].a, b: points[pick].b };
+    centres.push(c);
+    for (let i = 0; i < points.length; i++) near[i] = Math.min(near[i], labDistance(points[i], c));
+  }
+  return centres;
+};
+
+export const clusterColours = (points, k = KMEANS_K, iterations = KMEANS_ITERATIONS) => {
+  if (!points.length) return [];
+  const centres = seedCentres(points, k);
+  const owner = new Int16Array(points.length);
+  for (let it = 0; it < iterations; it++) {
+    const sums = centres.map(() => ({ w: 0, L: 0, a: 0, b: 0 }));
+    for (let i = 0; i < points.length; i++) {
+      let best = 0;
+      let bestD = Infinity;
+      for (let c = 0; c < centres.length; c++) {
+        const d = labDistance(points[i], centres[c]);
+        if (d < bestD) {
+          bestD = d;
+          best = c;
+        }
+      }
+      owner[i] = best;
+      const s = sums[best];
+      s.w += points[i].w;
+      s.L += points[i].L * points[i].w;
+      s.a += points[i].a * points[i].w;
+      s.b += points[i].b * points[i].w;
+    }
+    for (let c = 0; c < centres.length; c++) {
+      if (sums[c].w) centres[c] = { L: sums[c].L / sums[c].w, a: sums[c].a / sums[c].w, b: sums[c].b / sums[c].w };
+    }
+  }
+  const total = points.reduce((n, p) => n + p.w, 0);
+  const stats = centres.map((c) => ({ ...c, w: 0, edge: 0 }));
+  for (let i = 0; i < points.length; i++) {
+    stats[owner[i]].w += points[i].w;
+    if (points[i].edge) stats[owner[i]].edge += points[i].w;
+  }
+  return stats
+    .filter((s) => s.w > 0)
+    .map((s) => ({ L: s.L, a: s.a, b: s.b, chroma: Math.hypot(s.a, s.b), area: s.w / total, edge: s.edge / s.w }));
+};
+
+export const clusterScore = (c) => {
+  let score = c.area ** 0.6 * c.chroma ** 1.2;
+  if (c.L > 0.95 || c.L < 0.12) score *= 0.2;
+  if (c.edge > 0.25) score *= 0.4;
+  return score;
+};
+
+const clusterHex = (c) => '#' + fromOklab(c.L, c.a, c.b).map((v) => linToSrgb(Math.min(1, Math.max(0, v))).toString(16).padStart(2, '0')).join('');
+
+export const extractColours = (data, w, h) => {
+  const clusters = clusterColours(gridPoints(data, w, h));
+  const ranked = clusters
+    .filter((c) => c.chroma > ACCENT_MIN_CHROMA && c.area >= ACCENT_MIN_AREA)
+    .map((c) => ({ ...c, score: clusterScore(c) }))
+    .sort((x, y) => y.score - x.score || x.L - y.L);
+  if (!ranked.length) return null;
+  const accent = ranked[0];
+  const second = ranked
+    .slice(1)
+    .filter((c) => c.L >= 0.12 && c.L <= 0.95 && c.area >= GRADIENT_MIN_AREA && labDistance(c, accent) > GRADIENT_MIN_DELTA)[0];
+  let stops;
+  let synthetic = false;
+  if (second) stops = [accent, second].sort((x, y) => x.L - y.L).map(clusterHex);
+  else {
+    const hue = Math.atan2(accent.b, accent.a);
+    const chroma = accent.chroma * SYNTHETIC_CHROMA;
+    stops = [oklchHex(accent.L - SYNTHETIC_SHIFT, chroma, hue), oklchHex(accent.L + SYNTHETIC_SHIFT, chroma, hue)];
+    synthetic = true;
+  }
+  return { accent: clusterHex(accent), gradient: stops, synthetic, share: accent.area, chroma: accent.chroma };
+};
 
 export const tintFromOklch = (c, h) => [oklchHex(0.66, c, h), oklchHex(0.86, Math.min(c * 0.75, 0.11), h), oklchHex(0.38, Math.min(c, 0.12), h)];
 

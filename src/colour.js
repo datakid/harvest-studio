@@ -10,13 +10,17 @@ export const randomSeed = () => {
 export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary }) => {
   const list = [...records.values()].filter((r) => r.hasImage);
   const appOf = new Map(list.map((r) => [r.key, r.appId]));
+  const groupOf = new Map(list.filter((r) => r.groupId).map((r) => [r.key, r.groupId]));
   const entries = {};
   const lockedEntries = {};
   for (const r of list) {
     if (r.locked) lockedEntries[r.key] = { tint: r.tint, locked: true };
-    else entries[r.key] = { tint: r.base, locked: false };
+    else entries[r.key] = { tint: r.base, locked: false, colour: r.colour || null };
   }
-  const res = applyMode(entries, appOf, { mode, seed, color: monoColor, vary: mode === 'palette' ? paletteVary : monoVary, colors: paletteColors, spread });
+  const separate = mode === 'separate';
+  const pool = separate ? { ...entries, ...lockedEntries } : entries;
+  const keys = separate ? new Set(Object.keys(entries)) : undefined;
+  const res = applyMode(pool, appOf, { mode, seed, color: monoColor, vary: mode === 'palette' ? paletteVary : monoVary, colors: paletteColors, spread, keys, groupOf });
   const all = { ...entries, ...lockedEntries };
   guardContrast(all);
   const tight = new Set(res.tight || []);
@@ -55,11 +59,11 @@ export const tileColours = (tint, { colors, theme }) => {
 };
 
 export const requiredPatch = (rec, mode, seed) => {
-  const seeded = (mode === 'follow' || mode === 'mono' || mode === 'palette') && !rec.locked;
+  const seeded = (mode === 'separate' || mode === 'follow' || mode === 'mono' || mode === 'palette') && !rec.locked;
   return {
     tint: rec.tint,
     sourceTint: rec.base && rec.tint && rec.base.join() !== rec.tint.join() ? rec.base : undefined,
-    locked: rec.locked || (mode !== 'follow' && mode !== 'keep'),
+    locked: rec.locked || (mode !== 'separate' && mode !== 'follow' && mode !== 'keep'),
     palette: null,
     seed: seeded && rec.tint ? seed : null
   };

@@ -127,6 +127,10 @@ const serialise = async (rec) => {
     tint: rec.tint || null,
     sourceTint: rec.sourceTint || null,
     locked: !!rec.locked,
+    groupId: rec.groupId || null,
+    tight: !!rec.tight,
+    contrast: rec.contrast || null,
+    colour: rec.colour ? { share: rec.colour.share } : null,
     hash: rec.hash || null,
     trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
     favicon,
@@ -148,7 +152,7 @@ const handlers = {
     const pins = { ...(await shippedPins), ...(p.pins || {}) };
     const result = await runHarvest(
       { targets, overrides: {}, pins },
-      { profile: 'launcher', seed: p.seed, mode: 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
+      { profile: 'launcher', seed: p.seed, mode: p.mode === 'separate' ? 'separate' : 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
       makeIo()
     );
     records = new Map(result.records.map((r) => [r.key, r]));
@@ -160,7 +164,7 @@ const handlers = {
       if (r.favicon) transfer.push(r.favicon.buffer);
       if (r.glyph) transfer.push(r.glyph.buffer);
     }
-    return { value: { records: out, items: result.report.items, summary: result.report.summary }, transfer };
+    return { value: { records: out, items: result.report.items, summary: result.report.summary, polish: result.report.polish }, transfer };
   },
 
   async importManifest(p) {

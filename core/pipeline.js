@@ -1,8 +1,9 @@
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
 import { normalize, gate, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
-import { imageToLab, extractGradient, extractAccent, hexToLab, isHex } from './color.js';
+import { imageToLab, extractColours, tintFromHex, STRONG_SHARE, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph } from './glyph.js';
+import { polishReport } from './polish.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
 import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
 import { applyMode, guardContrast, separateTints, MIN_TINT_SEP, DEFAULT_SEED } from './tints.js';
@@ -29,6 +30,10 @@ const isRichSvg = (img) => {
   const share = opaqueShare(img);
   return share >= 0.04 && share <= 0.92;
 };
+
+export const DEFAULT_MODE = 'separate';
+export const STROKE_OUTLIER = 1.6;
+export const STROKE_BIAS = 40;
 
 export const TARGET_TIMEOUT_MS = 30000;
 export const TIMEOUT_RETRY_MS = 1500;
@@ -322,7 +327,10 @@ export const processTarget = async (t, ctx) => {
 export const analyzeIcon = async (img) => {
   const n = img.width * img.height;
   const lab = imageToLab(img.data, n);
-  return { gradient: extractGradient(img.data, lab, n), accent: extractAccent(img.data, lab, n), glyph: await extractGlyph(img.data, lab, img.width, img.height) };
+  const colour = extractColours(img.data, img.width, img.height);
+  const tint = colour ? tintFromHex(colour.accent) : null;
+  const strong = !!colour && colour.share >= STRONG_SHARE;
+  return { gradient: strong ? tint : null, accent: strong ? null : tint, colour, glyph: await extractGlyph(img.data, lab, img.width, img.height) };
 };
 
 const baseName = (p) => p.split('/').pop().split('?')[0];
@@ -472,7 +480,7 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.image = r.image;
       rec.original = r.original || null;
       rec.hash = await pixelHash(r.image);
-      let analysis = { gradient: null, accent: null, glyph: null };
+      let analysis = { gradient: null, accent: null, colour: null, glyph: null };
       try {
         analysis = await analyzeIcon(r.image);
       } catch (e) {
@@ -485,6 +493,7 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.tint = analysis.gradient || catalogue || accent;
       if (catalogue) rec.tintSource = 'catalogue';
       else if (accent) rec.tintSource = 'accent';
+      rec.colour = analysis.colour;
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
@@ -529,7 +538,26 @@ export const runHarvest = async (input, options = {}, io) => {
     progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
   }
 
+  const strokeRetraced = [];
+  const widths = traceQueue.filter((r) => r.trace && r.trace.accepted && r.trace.stroke).map((r) => r.trace.stroke).sort((a, b) => a - b);
+  if (widths.length >= 5) {
+    const median = widths[Math.floor(widths.length / 2)];
+    for (const rec of traceQueue) {
+      if (!rec.trace || !rec.trace.accepted) continue;
+      const ratio = rec.trace.stroke / median;
+      if (ratio <= STROKE_OUTLIER && ratio >= 1 / STROKE_OUTLIER) continue;
+      const bias = ratio > 1 ? STROKE_BIAS : -STROKE_BIAS;
+      const retry = await traceGlyph(rec.glyphImage, rec.key, { bias });
+      if (retry.accepted && Math.abs(Math.log(retry.stroke / median)) < Math.abs(Math.log(rec.trace.stroke / median))) {
+        rec.trace = { ...retry, retraced: true, strokeWas: rec.trace.stroke };
+        strokeRetraced.push(rec.key);
+      }
+    }
+  }
+
   const appOf = new Map(targets.map((t) => [t.key, t.appId]));
+  const groupOf = new Map(targets.filter((t) => t.groupId).map((t) => [t.key, t.groupId]));
+  for (const rec of records) if (groupOf.has(rec.key)) rec.groupId = groupOf.get(rec.key);
   const entries = {};
   for (const rec of records) entries[rec.key] = rec;
   let adjusted = [];
@@ -539,13 +567,14 @@ export const runHarvest = async (input, options = {}, io) => {
     for (const rec of records) if (rec.tint) rec.sourceTint = rec.sourceTint || rec.tint;
     adjusted = separateTints(entries, appOf);
   } else {
-    const mode = options.mode || 'follow';
+    const mode = options.mode || DEFAULT_MODE;
     const unlocked = new Set(records.filter((r) => !r.locked && !r.kept && r.image && (mode === 'mono' || r.tint)).map((r) => r.key));
     for (const rec of records) if (rec.tint && !rec.sourceTint) rec.sourceTint = rec.tint;
-    const res = applyMode(entries, appOf, { mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked });
+    const res = applyMode(entries, appOf, { mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked, groupOf });
     adjusted = res.adjusted;
     groups = res.groups;
     tight = res.tight;
+    for (const key of tight) if (entries[key]) entries[key].tight = true;
     for (const rec of records) {
       if (rec.tint && mode !== 'keep' && unlocked.has(rec.key)) rec.seed = seed;
     }
@@ -592,11 +621,12 @@ export const runHarvest = async (input, options = {}, io) => {
       notfound: results.filter((r) => !byKey.has(r.key) && r.status !== 'skipped').length,
       ...(only ? { skipped: results.filter((r) => r.status === 'skipped').length } : {})
     },
-    colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
+    colour: { mode: legacy ? 'legacy' : options.mode || DEFAULT_MODE, seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
     gate: options.preview ? null : { ok: exported.gate.ok, failures: exported.gate.failures },
     unused,
     missing,
+    polish: polishReport({ records: sorted, groupOf, strokeRetraced, contrastFlagged: contrast.flagged }),
     defaults: [...flagged.keys()],
     similarPalette: [...palette.keys()],
     adjusted,
@@ -611,11 +641,12 @@ export const runHarvest = async (input, options = {}, io) => {
         error: r.error,
         tint: rec ? rec.tint : null,
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
-        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason, ...(rec.trace.clean ? { clean: true } : {}) } : null,
+        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason, ...(rec.trace.stroke ? { stroke: Number(rec.trace.stroke.toFixed(2)) } : {}), ...(rec.trace.clean ? { clean: true } : {}), ...(rec.trace.retraced ? { retraced: true, strokeWas: Number(rec.trace.strokeWas.toFixed(2)) } : {}) } : null,
         why: why.get(r.key) || null,
         ...(r.flags && r.flags.length ? { flags: r.flags } : {}),
         ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),
         ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
+        ...(rec && rec.colour ? { accent: rec.colour.accent, gradient: rec.colour.gradient, ...(rec.colour.synthetic ? { gradientSynthetic: true } : {}) } : {}),
         ...(rec && rec.fa ? { fa: rec.fa } : {}),
         ...(targetOf.get(r.key).closed ? { closed: true } : {})
       };

@@ -16,3 +16,4 @@ export * from './palettes.js';
 export * from './ico.js';
 export * from './head.js';
 export * from './protection.js';
+export * from './polish.js';

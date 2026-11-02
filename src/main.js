@@ -7,7 +7,7 @@ import { scanJson } from '../core/sources.js';
 import { extrasToTargets, mergeTargets, findDuplicates, dropDuplicates, isFihrist } from '../core/targets.js';
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
 import { tintFromOklch } from '../core/color.js';
-import { DEFAULT_SEED } from '../core/tints.js';
+import { DEFAULT_SEED, similarPairs } from '../core/tints.js';
 import { PRESETS, HARMONIES, harmony, cleanPalette } from '../core/palettes.js';
 import { listProjects, saveProject, loadProject, removeProject, newId } from './projects.js';
 
@@ -76,8 +76,8 @@ const leafMask = (() => {
   return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
 })();
 
-const tile = (rec, { size = 60, mask = null, tint = null } = {}) => {
-  const col = tileColours(tint || (rec && rec.tint), { colors: prefs.colors, theme: theme() });
+const tile = (rec, { size = 60, mask = null, tint = null, colors = prefs.colors, theme: tone = theme() } = {}) => {
+  const col = tileColours(tint || (rec && rec.tint), { colors, theme: tone });
   const el = h('span', { class: 'tile-art' + (col.vivid ? ' vivid' : ''), style: { '--size': size + 'px', '--tile': col.tile, '--tile-hi': col.hi || col.tile, '--tile-lo': col.lo || col.tile, '--ink-glyph': col.ink } });
   const m = mask || (rec && rec.mask);
   if (m) {
@@ -112,10 +112,11 @@ const snapshot = () => ({
   seed: state.seed,
   cell: state.cell,
   pins: state.pins,
+  polish: state.polish || null,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
   items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
-  records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
+  records: [...state.records.values()].map((r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null }))
 });
 
 const scheduleSave = () => {
@@ -141,7 +142,7 @@ const adopt = (result, nameOf) => {
   state.order = [...state.records.keys()].sort();
 };
 
-const enterWork = () => {
+const enterWork = (primed = false) => {
   state.selected = state.order.find((k) => state.records.get(k).hasImage) || null;
   state.stage = 'work';
   state.bloom = true;
@@ -149,7 +150,7 @@ const enterWork = () => {
   launcherBuild = null;
   state.projectId = newId();
   state.projectName = defaultName();
-  applyColours();
+  if (!primed) applyColours();
   renderMain();
 };
 
@@ -380,7 +381,7 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
+    const result = await client.call('harvest', { targets, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
       onProgress: (p) => {
         state.progress = p;
         updateProgress();
@@ -395,8 +396,9 @@ const startHarvest = async () => {
     }
     const names = new Map(targets.map((x) => [x.key, x]));
     state.cell = null;
+    state.polish = result.polish || null;
     adopt(result, (k) => (names.get(k) || {}).name || k);
-    enterWork();
+    enterWork(prefs.mode === 'separate');
     const unreached = result.items.filter((i) => i.error && /needs the fetch proxy/.test(i.error)).length;
     if (unreached) toast(t('proxyMissingSome', { n: unreached }));
   } catch (e) {
@@ -469,6 +471,7 @@ const openProject = async (meta) => {
     prefs.paletteColors = cleanPalette(prefs.paletteColors).length ? cleanPalette(prefs.paletteColors) : ['#f0475c'];
     save();
     state.seed = payload.seed || DEFAULT_SEED;
+    state.polish = payload.polish || null;
     state.cell = payload.cell || null;
     state.pins = payload.pins && typeof payload.pins === 'object' ? payload.pins : {};
     adopt({ records: payload.records, items: payload.items }, (k) => (payload.items.find((i) => i.key === k) || {}).name || k);
@@ -695,6 +698,44 @@ const stats = () => {
   return { n: list.length, glyphs, review };
 };
 
+const imaged = () => [...state.records.values()].filter((r) => r.hasImage);
+
+const similarNow = () => similarPairs(imaged().filter((r) => r.tint), new Map(imaged().filter((r) => r.groupId).map((r) => [r.key, r.groupId])));
+
+const polishRows = () => {
+  const list = imaged();
+  const raster = list.filter((r) => r.trace && !r.trace.accepted).length;
+  const flagged = list.filter((r) => r.contrast === 'flagged').length;
+  const pairs = similarNow().length;
+  const p = state.polish;
+  return [
+    { id: 'safe', ok: !p || p.safeArea >= 0.95, text: t('polishSafe', { p: p ? Math.round(p.safeArea * 100) : 100 }) },
+    { id: 'rounded', ok: !p || p.rounded === 1, text: t('polishRounded', { p: p ? Math.round(p.rounded * 100) : 100 }) },
+    { id: 'pairs', ok: pairs === 0, text: t('polishPairs', { n: pairs }) },
+    { id: 'raster', ok: raster === 0, text: t('polishRaster', { n: raster }) },
+    { id: 'contrast', ok: flagged === 0, text: t('polishContrast', { n: flagged }) }
+  ];
+};
+
+const previewStrip = (colors, tone) => h('div', { class: 'pstrip ' + tone, role: 'group', 'aria-label': t(colors === 'vivid' ? 'vivid' : 'muted') + ', ' + t(tone === 'dark' ? 'themeDark' : 'themeLight') }, imaged().map((r) => tile(r, { size: 36, colors, theme: tone })));
+
+const openPolish = () => {
+  const dlg = h('dialog', { 'aria-labelledby': 'pol-title', id: 'polish-dialog' });
+  const rows = polishRows();
+  const body = h(
+    'div',
+    { class: 'dlg' },
+    h('header', null, h('h2', { id: 'pol-title' }, t('polishTitle')), h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('close'), onClick: () => dlg.close() }, icon('close'))),
+    h('ul', { class: 'checklist' }, rows.map((r) => h('li', { 'data-id': r.id, class: r.ok ? 'ok' : 'warn' }, icon(r.ok ? 'check' : 'warn', { size: 16 }), h('span', null, r.text)))),
+    h('h3', { class: 'label' }, t('polishPreview')),
+    ...['vivid', 'muted'].flatMap((c) => ['light', 'dark'].map((tone) => h('div', { class: 'pstrip-row' }, h('span', { class: 'label' }, t(c) + ' · ' + t(tone === 'dark' ? 'themeDark' : 'themeLight')), previewStrip(c, tone))))
+  );
+  dlg.append(body);
+  document.body.append(dlg);
+  dlg.addEventListener('close', () => dlg.remove());
+  dlg.showModal();
+};
+
 const renderToolbar = () => {
   const s = stats();
   return h(
@@ -702,6 +743,7 @@ const renderToolbar = () => {
     { class: 'toolbar' },
     h('input', { class: 'proj-name', type: 'text', value: state.projectName, 'aria-label': t('projectName'), spellcheck: false, onInput: (e) => { state.projectName = e.target.value; scheduleSave(); } }),
     h('div', { class: 'stat' }, t('summary', { n: s.n, g: s.glyphs }), s.review ? h('small', null, t('review', { n: s.review })) : null),
+    h('button', { class: 'btn quiet pairs', id: 'pairs', type: 'button', 'data-pairs': String(similarNow().length), onClick: openPolish }, icon(similarNow().length ? 'warn' : 'check', { size: 16 }), t('similarPairs', { n: similarNow().length })),
     h('div', { class: 'spacer pv' }, h('span', null, t('previewColors')), seg(t('previewColors'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); renderMain(); })),
     h('div', { class: 'pv' }, h('span', null, t('previewCorners')), seg(t('previewCorners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); renderMain(); })),
     h('button', { class: 'btn primary', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('export'))
@@ -737,6 +779,7 @@ const startOver = () => {
 };
 
 const refreshTiles = () => {
+  refreshPairs();
   document.querySelectorAll('.cell').forEach((c) => {
     const rec = state.records.get(c.dataset.key);
     if (!rec || !rec.hasImage) return;
@@ -750,8 +793,8 @@ const refreshTiles = () => {
   if (state.stage === 'work') renderInspector();
 };
 
-const MODES = () => [['follow', t('modeFollow')], ['mono', t('modeMono')], ['palette', t('modePalette')], ['family', t('modeFamily')], ['keep', t('modeKeep')]];
-const MODE_HINT = { follow: 'modeFollowHint', mono: 'modeMonoHint', palette: 'modePaletteHint', family: 'modeFamilyHint', keep: 'modeKeepHint' };
+const MODES = () => [['separate', t('modeSeparate')], ['follow', t('modeFollow')], ['mono', t('modeMono')], ['palette', t('modePalette')], ['family', t('modeFamily')], ['keep', t('modeKeep')]];
+const MODE_HINT = { separate: 'modeSeparateHint', follow: 'modeFollowHint', mono: 'modeMonoHint', palette: 'modePaletteHint', family: 'modeFamilyHint', keep: 'modeKeepHint' };
 
 const colourPanel = () => {
   const panel = h('section', { class: 'panel' }, h('h2', null, t('colours')), seg(t('colours'), MODES(), prefs.mode, (v) => { prefs.mode = v; save(); applyColours(); refreshTiles(); }, { wide: true }), h('p', { class: 'hint-text' }, t(MODE_HINT[prefs.mode])));
@@ -839,7 +882,16 @@ const palettePanel = () => {
   return out;
 };
 
+const refreshPairs = () => {
+  const el = document.getElementById('pairs');
+  if (!el) return;
+  const n = similarNow().length;
+  el.dataset.pairs = String(n);
+  el.replaceChildren(icon(n ? 'warn' : 'check', { size: 16 }), document.createTextNode(t('similarPairs', { n })));
+};
+
 const refreshTilesOnly = () => {
+  refreshPairs();
   document.querySelectorAll('.cell').forEach((c) => {
     const rec = state.records.get(c.dataset.key);
     if (!rec || !rec.hasImage) return;

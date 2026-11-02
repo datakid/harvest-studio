@@ -4,7 +4,13 @@ export const MIN_TINT_SEP = 0.04;
 export const GROUP_DELTA_E = 0.06;
 export const MAX_DRAWS = 12;
 export const DEFAULT_SEED = '1f2e3d4c';
-export const MODES = ['follow', 'mono', 'palette', 'family', 'keep'];
+export const MODES = ['follow', 'mono', 'palette', 'family', 'separate', 'keep'];
+export const SEPARATE_DELTA = 0.06;
+export const SEPARATE_HUE_GAP = 14;
+export const SEPARATE_HUE_RANGE = 25;
+export const SEPARATE_CHROMA_RANGE = 0.15;
+export const SEPARATE_LIGHTNESS_RANGE = 0.05;
+export const SEPARATE_MIN_CHROMA = 0.04;
 
 const RAD = Math.PI / 180;
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -182,6 +188,184 @@ export const followTints = (entries, appOf, { seed = DEFAULT_SEED, spread = 1, k
   return { adjusted, groups: groups.filter((g) => g.length > 1), tight: tightGroups };
 };
 
+const hueGapDegrees = (a, b) => {
+  const d = Math.abs(a - b) % (Math.PI * 2);
+  return (Math.min(d, Math.PI * 2 - d) * 180) / Math.PI;
+};
+
+const separateCandidates = (() => {
+  const out = [];
+  for (let h = -SEPARATE_HUE_RANGE; h <= SEPARATE_HUE_RANGE; h += 3) {
+    for (let l = -4; l <= 4; l++) {
+      for (let c = -3; c <= 3; c++) {
+        const dh = h;
+        const dl = (l * SEPARATE_LIGHTNESS_RANGE) / 4;
+        const dc = (c * SEPARATE_CHROMA_RANGE) / 3;
+        const cost = 3 * (dh / SEPARATE_HUE_RANGE) ** 2 + (dl / SEPARATE_LIGHTNESS_RANGE) ** 2 + (dc / SEPARATE_CHROMA_RANGE) ** 2;
+        out.push({ dh: dh * RAD, dl, dcMul: 1 + dc, cost });
+      }
+    }
+  }
+  return out;
+})();
+
+const crowding = (lab, lch, placed) => {
+  let near = Infinity;
+  let gap = Infinity;
+  const chromatic = lch[1] >= SEPARATE_MIN_CHROMA;
+  for (const o of placed) {
+    const dl = lab[0] - o.lab[0];
+    const da = lab[1] - o.lab[1];
+    const db = lab[2] - o.lab[2];
+    const d = dl * dl + da * da + db * db;
+    if (d < near) near = d;
+    if (chromatic && o.lch[1] >= SEPARATE_MIN_CHROMA) {
+      const g = hueGapDegrees(lch[2], o.lch[2]);
+      if (g < gap) gap = g;
+    }
+  }
+  return { sep: Math.sqrt(near), gap };
+};
+
+const withinRange = (base, t) => {
+  const a = hexToLch(base[0]);
+  const b = hexToLch(t[0]);
+  if (Math.abs(b[0] - a[0]) > SEPARATE_LIGHTNESS_RANGE) return false;
+  if (a[1] > 0.001 && Math.abs(b[1] / a[1] - 1) > SEPARATE_CHROMA_RANGE) return false;
+  return hueGapDegrees(a[2], b[2]) <= SEPARATE_HUE_RANGE + 0.5;
+};
+
+const rankedFor = (memo, key, base, seed) => {
+  let hit = memo.get(key);
+  if (!hit) {
+    const rng = rngFor(seed, key);
+    const order = separateCandidates.map((c, i) => ({ i, rank: c.cost + rng() * 0.02 })).sort((x, y) => x.rank - y.rank || x.i - y.i).map((x) => x.i);
+    hit = { order, evaluated: new Map() };
+    memo.set(key, hit);
+  }
+  return hit;
+};
+
+const candidateTint = (hit, base, i) => {
+  if (hit.evaluated.has(i)) return hit.evaluated.get(i);
+  const c = separateCandidates[i];
+  const t = shiftTint(base, c.dh, c.dl, c.dcMul);
+  const out = passesContrast(t) && withinRange(base, t) ? { tint: t, lab: hexToLab(t[0]), lch: hexToLch(t[0]) } : null;
+  hit.evaluated.set(i, out);
+  return out;
+};
+
+const placeTint = (key, base, placed, seed, memo = new Map()) => {
+  const baseLab = hexToLab(base[0]);
+  const baseLch = hexToLch(base[0]);
+  const own = crowding(baseLab, baseLch, placed);
+  const readable = passesContrast(base);
+  if (own.sep >= SEPARATE_DELTA && own.gap >= SEPARATE_HUE_GAP && readable) return { tint: base, tight: false };
+  const hit = rankedFor(memo, key, base, seed);
+  let both = null;
+  let sepOnly = null;
+  let best = null;
+  let bestSep = -1;
+  for (const i of hit.order) {
+    const c = candidateTint(hit, base, i);
+    if (!c) continue;
+    const x = crowding(c.lab, c.lch, placed);
+    if (x.sep >= SEPARATE_DELTA && x.gap >= SEPARATE_HUE_GAP) {
+      both = c.tint;
+      break;
+    }
+    if (x.sep >= SEPARATE_DELTA && !sepOnly) sepOnly = c.tint;
+    if (x.sep > bestSep) {
+      bestSep = x.sep;
+      best = c.tint;
+    }
+  }
+  if (both) return { tint: both, tight: false };
+  if (sepOnly) return { tint: sepOnly, tight: false };
+  if (readable && own.sep >= bestSep) return { tint: base, tight: true };
+  return { tint: best || base, tight: true };
+};
+
+export const SEPARATE_ROUNDS = 4;
+
+export const separateGroupTints = (entries, appOf, { seed = DEFAULT_SEED, keys = null, groupOf = new Map() } = {}) => {
+  const adjusted = new Set();
+  const tight = new Set();
+  const byGroup = new Map();
+  const memo = new Map();
+  for (const key of Object.keys(entries).sort()) {
+    if (!appOf.has(key)) continue;
+    const e = entries[key];
+    const movable = !keys || keys.has(key);
+    if (movable ? !validTint(baseOf(e)) : !validTint(e.tint)) continue;
+    const g = groupOf.get(key) || '';
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push({ key, movable });
+  }
+  for (const g of [...byGroup.keys()].sort()) {
+    const members = byGroup.get(g);
+    const fixed = members.filter((m) => !m.movable).map((m) => ({ key: m.key, lab: hexToLab(entries[m.key].tint[0]), lch: hexToLch(entries[m.key].tint[0]) }));
+    const order = members
+      .filter((m) => m.movable)
+      .sort((a, b) => {
+        const ca = (entries[a.key].colour && entries[a.key].colour.share) || 0;
+        const cb = (entries[b.key].colour && entries[b.key].colour.share) || 0;
+        return cb - ca || hash32(seed + ':' + a.key) - hash32(seed + ':' + b.key) || (a.key < b.key ? -1 : 1);
+      })
+      .map((m) => m.key);
+    const current = new Map();
+    const place = (key, others) => {
+      const base = baseOf(entries[key]);
+      const r = placeTint(key, base, others, seed, memo);
+      current.set(key, { key, tint: r.tint, lab: hexToLab(r.tint[0]), lch: hexToLch(r.tint[0]) });
+      if (r.tight) tight.add(key);
+      else tight.delete(key);
+    };
+    for (const key of order) place(key, [...fixed, ...current.values()]);
+    for (let round = 0; round < SEPARATE_ROUNDS; round++) {
+      let moved = false;
+      for (const key of order) {
+        const me = current.get(key);
+        const others = [...fixed, ...[...current.values()].filter((o) => o.key !== key)];
+        const x = crowding(me.lab, me.lch, others);
+        if (x.sep >= SEPARATE_DELTA && !tight.has(key)) continue;
+        const before = me.tint.join();
+        place(key, others);
+        if (current.get(key).tint.join() !== before) moved = true;
+      }
+      if (!moved) break;
+    }
+    for (const key of order) {
+      const e = entries[key];
+      const base = baseOf(e);
+      const chosen = current.get(key).tint;
+      e.tint = chosen;
+      if (chosen.join() === base.join()) delete e.sourceTint;
+      else {
+        e.sourceTint = base;
+        adjusted.add(key);
+      }
+    }
+  }
+  return { adjusted: [...adjusted].sort(), groups: [], tight: [...tight].sort() };
+};
+
+export const similarPairs = (items, groupOf = new Map(), threshold = SEPARATE_DELTA) => {
+  const byGroup = new Map();
+  for (const it of items) {
+    if (!validTint(it.tint)) continue;
+    const g = groupOf.get(it.key) || '';
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push({ key: it.key, lab: hexToLab(it.tint[0]) });
+  }
+  const pairs = [];
+  for (const list of byGroup.values()) {
+    list.sort((a, b) => (a.key < b.key ? -1 : 1));
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) if (deltaE(list[i].lab, list[j].lab) < threshold) pairs.push([list[i].key, list[j].key]);
+  }
+  return pairs;
+};
+
 export const monoTints = (entries, appOf, { color, seed = DEFAULT_SEED, vary = true, spread = 1, keys = null } = {}) => {
   const base = tintFromHex(color);
   const eligible = Object.keys(entries).filter((k) => appOf.has(k) && (!keys || keys.has(k))).sort();
@@ -250,6 +434,7 @@ export const applyMode = (entries, appOf, options = {}) => {
   if (mode === 'mono') return monoTints(entries, appOf, options);
   if (mode === 'palette') return paletteTints(entries, appOf, options);
   if (mode === 'family') return { adjusted: separateTints(entries, appOf), groups: [], tight: [] };
+  if (mode === 'separate') return separateGroupTints(entries, appOf, options);
   return followTints(entries, appOf, options);
 };
 

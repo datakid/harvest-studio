@@ -56,7 +56,7 @@ const harvestFiles = async (page, list) => {
   await page.setInputFiles('#pick-files', list.map(file));
   await page.waitForSelector('.chip');
   await page.click('#go');
-  await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForFunction((n) => document.querySelectorAll('.gallery .cell .tile-art:not(.ghost)').length === n, list.length, { timeout: 120000 });
   await page.waitForTimeout(1600);
 };

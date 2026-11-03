@@ -147,14 +147,14 @@ const pickAddress = async (url, resolve) => {
   return list[0];
 };
 
-export const fetchUpstream = async (rawUrl, { resolve = defaultResolve, request = defaultRequest, limits = LIMITS, onRedirect = null } = {}) => {
+export const fetchUpstream = async (rawUrl, { resolve = defaultResolve, request = defaultRequest, limits = LIMITS, onRedirect = null, conditional = {} } = {}) => {
   let url = parseTarget(rawUrl);
   let viaCdn = false;
   for (let hop = 0; hop <= limits.maxRedirects; hop++) {
     const { address, family } = await pickAddress(url, resolve);
     let res;
     try {
-      res = await request({ url, address, family, headers: { 'user-agent': 'Mozilla/5.0 HarvestStudioFetch', accept: '*/*', 'accept-encoding': 'identity' }, timeoutMs: limits.timeoutMs });
+      res = await request({ url, address, family, headers: { 'user-agent': 'Mozilla/5.0 HarvestStudioFetch', accept: '*/*', 'accept-encoding': 'identity', ...conditional }, timeoutMs: limits.timeoutMs });
     } catch (e) {
       if (e && (e.code === 'ETIMEDOUT' || e.message === 'timeout')) throw new ProxyError(504, 'upstream timed out');
       throw new ProxyError(502, 'upstream request failed');
@@ -255,9 +255,9 @@ const rateFrom = (env, name = 'STUDIO_RATE_LIMIT', fallback = DEFAULT_RATE) => {
 
 const cors = (res, env) => {
   res.setHeader('access-control-allow-origin', env.STUDIO_ORIGIN || '*');
-  res.setHeader('access-control-allow-headers', 'x-studio-token');
+  res.setHeader('access-control-allow-headers', 'x-studio-token, if-none-match, if-modified-since');
   res.setHeader('access-control-allow-methods', 'GET, OPTIONS');
-  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-upstream-protection, x-vercel-mitigated, retry-after, content-type');
+  res.setHeader('access-control-expose-headers', 'x-upstream-status, x-upstream-url, x-upstream-truncated, x-upstream-protection, x-upstream-etag, x-upstream-last-modified, x-vercel-mitigated, retry-after, content-type');
   res.setHeader('vary', 'origin, x-studio-token, sec-fetch-site');
   res.setHeader('cache-control', 'no-store');
 };
@@ -342,22 +342,30 @@ export const createHandler = ({ resolve = defaultResolve, request = defaultReque
             throw new ProxyError(403, 'redirect target is not allowed');
           }
         : null;
-      const { res: up, url, viaCdn } = await fetchUpstream(target, { resolve, request, limits, onRedirect });
+      const conditional = {};
+      const etagIn = String(req.headers['if-none-match'] || '');
+      const sinceIn = String(req.headers['if-modified-since'] || '');
+      if (etagIn && etagIn.length <= 256 && !/[\r\n]/.test(etagIn)) conditional['if-none-match'] = etagIn;
+      if (sinceIn && sinceIn.length <= 64 && !/[\r\n]/.test(sinceIn)) conditional['if-modified-since'] = sinceIn;
+      const { res: up, url, viaCdn } = await fetchUpstream(target, { resolve, request, limits, onRedirect, conditional });
       const type = String(up.headers['content-type'] || '');
       if (type && !ALLOWED_TYPES.some((re) => re.test(type))) {
         if (up.destroy) up.destroy();
         throw new ProxyError(415, 'content type ' + type.split(';')[0] + ' is not allowed');
       }
-      if (viaCdn && !/^(image\/|text\/html\b|application\/xhtml\+xml\b)/i.test(type)) {
+      if (viaCdn && up.status !== 304 && !/^(image\/|text\/html\b|application\/xhtml\+xml\b)/i.test(type)) {
         if (up.destroy) up.destroy();
         throw new ProxyError(403, 'redirect target is not allowed');
       }
       const wantHead = params.get('mode') === 'head' && /^(text\/html|application\/xhtml\+xml)/i.test(type);
-      const read = wantHead ? await readHeadCapped(up, limits.timeoutMs) : { body: await readCapped(up, limits.maxBytes, limits.timeoutMs), cut: false };
+      const read = up.status === 304 ? { body: Buffer.alloc(0), cut: false } : wantHead ? await readHeadCapped(up, limits.timeoutMs) : { body: await readCapped(up, limits.maxBytes, limits.timeoutMs), cut: false };
+      if (up.status === 304 && up.destroy) up.destroy();
       const body = read.body;
       if (read.cut) res.setHeader('x-upstream-truncated', 'head');
       res.setHeader('x-upstream-status', String(up.status));
       res.setHeader('x-upstream-url', url.href);
+      if (up.headers.etag) res.setHeader('x-upstream-etag', String(up.headers.etag).slice(0, 256));
+      if (up.headers['last-modified']) res.setHeader('x-upstream-last-modified', String(up.headers['last-modified']).slice(0, 64));
       if (up.headers['x-vercel-mitigated']) res.setHeader('x-vercel-mitigated', String(up.headers['x-vercel-mitigated']));
       const protection = netlifyProtection(up.status, headersReader(up.headers));
       if (protection) res.setHeader('x-upstream-protection', protection);

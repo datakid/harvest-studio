@@ -1,8 +1,8 @@
 export const createClient = () => {
-  const worker = new Worker('/worker.js', { type: 'module' });
   let n = 0;
+  let worker = null;
   const pending = new Map();
-  worker.onmessage = (event) => {
+  const onmessage = (event) => {
     const { id, done, error, value, progress } = event.data;
     const p = pending.get(id);
     if (!p) return;
@@ -16,15 +16,23 @@ export const createClient = () => {
       else p.resolve(value);
     }
   };
-  worker.onerror = (event) => {
+  const onerror = (event) => {
     for (const p of pending.values()) p.reject(new Error(event.message || 'worker failed'));
     pending.clear();
+  };
+  const start = () => {
+    if (!worker) {
+      worker = new Worker('/worker.js', { type: 'module' });
+      worker.onmessage = onmessage;
+      worker.onerror = onerror;
+    }
+    return worker;
   };
   const call = (type, payload, { transfer = [], onProgress } = {}) =>
     new Promise((resolve, reject) => {
       const id = ++n;
       pending.set(id, { resolve, reject, onProgress });
-      worker.postMessage({ id, type, payload }, transfer);
+      start().postMessage({ id, type, payload }, transfer);
     });
-  return { call, worker };
+  return { call, warm: start };
 };

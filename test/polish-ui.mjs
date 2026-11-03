@@ -21,7 +21,7 @@ const open = async (scheme) => {
   await page.waitForSelector('#harvest-catalogue');
   await page.click('#harvest-catalogue');
   await page.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
-  await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForTimeout(2200);
   return page;
 };

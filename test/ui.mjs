@@ -44,7 +44,7 @@ const harvest = async (page) => {
   await page.waitForSelector('.chip');
   await page.evaluate(() => { window.__goAt = performance.now(); });
   await page.click('#go');
-  await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForTimeout(1500);
 };
 const shot = async (page, name) => shots && (await page.screenshot({ path: path.join(shots, name + '.png') }));
@@ -180,7 +180,7 @@ await single.reload();
 await check('a single site address is harvested through the proxy', async () => {
   await single.locator('#urls').fill('demo.example.com');
   await single.click('#go');
-  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await single.locator('.gallery .cell').count(), 1);
   assert.ok(await single.getByText('Found').count());
   assert.ok(await single.getByText(/png http/).count());
@@ -210,7 +210,7 @@ await check('a text favicon is drawn in the browser worker with the bundled font
   assert.equal(await single.locator('[role="progressbar"]').getAttribute('aria-valuemin'), '0');
   assert.ok((await single.locator('[role="progressbar"]').getAttribute('aria-valuenow')) !== null);
   await font;
-  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await single.locator('.gallery .cell').first().click();
   assert.ok(await single.getByText(/svg http/).count());
 });
@@ -218,6 +218,7 @@ await check('a wrong proxy token explains itself', async () => {
   await single.keyboard.press('Escape');
   await single.evaluate(() => sessionStorage.setItem('hs:token', 'wrong'));
   await single.reload();
+  await single.evaluate(() => new Promise((resolve) => { const req = indexedDB.deleteDatabase('hs:cache'); req.onsuccess = req.onerror = req.onblocked = () => resolve(); }));
   await single.locator('#urls').fill('demo.example.com');
   await single.click('#go');
   await single.waitForSelector('.note.bad', { timeout: 120000 });
@@ -267,7 +268,7 @@ await check('the shipped catalogue harvests in one click with no proxy, protocol
   await fresh.waitForSelector('#harvest-catalogue');
   assert.match(await fresh.locator('#harvest-catalogue').innerText(), /34/);
   await fresh.click('#harvest-catalogue');
-  await fresh.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await fresh.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
   const state = await fresh.evaluate(() => {
     const items = [...window.__studio.state.items.values()];

@@ -3,6 +3,7 @@ import './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createNodePool } from './node-pool.mjs';
 import { runHarvest, buildTargets, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -11,7 +12,7 @@ const repoRoot = process.cwd();
 const knownDir = path.join(studioDir, 'config', 'known-icons');
 
 const parseArgs = (argv) => {
-  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null };
+  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null, workers: null };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -24,6 +25,7 @@ const parseArgs = (argv) => {
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
     else if (a === '--fa-fallback') out.faFallback = true;
+    else if (a === '--workers') out.workers = Number(take(i++, a));
     else if (a === '--only') out.only = take(i++, a).split(',').map((k) => k.trim()).filter(Boolean);
     else throw new Error('unknown flag ' + a);
   }
@@ -129,11 +131,17 @@ const main = async () => {
     }
   };
 
-  const result = await runHarvest(
-    { targets, overrides, pins, launcherIds: buildTargets(catalog).map((t) => t.key) },
-    { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only },
-    io
-  );
+  const pool = args.workers ? createNodePool(args.workers) : null;
+  let result;
+  try {
+    result = await runHarvest(
+      { targets, overrides, pins, launcherIds: buildTargets(catalog).map((t) => t.key) },
+      { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only, compute: pool || undefined },
+      io
+    );
+  } finally {
+    if (pool) await pool.close();
+  }
   const exp = result.export;
 
   if (!exp.gate.ok) {

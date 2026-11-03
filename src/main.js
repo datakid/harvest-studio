@@ -15,6 +15,7 @@ import { classify, keepBoth, notPresent } from './add.js';
 const prefs = loadPrefs();
 setLang(prefs.lang);
 const client = createClient();
+for (const type of ['pointerdown', 'keydown', 'dragenter', 'paste']) addEventListener(type, () => client.warm(), { once: true, capture: true });
 let proxyToken = loadToken();
 let builtInProxy = false;
 const proxyReady = fetch('/api/fetch?probe=1')
@@ -338,6 +339,7 @@ const openManifest = async () => {
   const b = state.pending.bundle;
   state.error = null;
   state.stage = 'busy';
+  state.busyKeys = null;
   state.ghosts = Object.keys(b.manifest.data.icons).length;
   state.progress = { done: 0, total: 1, phase: 'fetch' };
   renderMain();
@@ -398,6 +400,7 @@ const startHarvest = async () => {
   state.names = new Map(targets.map((x) => [x.key, x.name || x.key]));
   state.stage = 'busy';
   state.ghosts = targets.length;
+  state.busyKeys = targets.map((x) => x.key);
   state.progress = { done: 0, total: targets.length, phase: 'fetch' };
   renderMain();
   try {
@@ -405,6 +408,10 @@ const startHarvest = async () => {
     state.seed = state.seed || DEFAULT_SEED;
     const result = await client.call('harvest', { targets, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
       onProgress: (p) => {
+        if (p.phase === 'tile') {
+          streamTile(p);
+          return;
+        }
         state.progress = p;
         updateProgress();
       }
@@ -429,6 +436,29 @@ const startHarvest = async () => {
     state.error = t('harvestFailed', { why }) + (/proxy/i.test(why) ? ' ' + t('proxyNeeded') : '');
     renderMain();
   }
+};
+
+const streamQueue = [];
+let streamFrame = 0;
+
+const flushStream = () => {
+  streamFrame = 0;
+  const cells = document.querySelectorAll('.work .gallery > li > .cell[data-busy-key]');
+  const byKey = new Map([...cells].map((c) => [c.dataset.busyKey, c]));
+  for (const p of streamQueue.splice(0)) {
+    const cell = byKey.get(p.key);
+    const ghost = cell && cell.querySelector('.tile-art.ghost');
+    if (!ghost) continue;
+    const url = URL.createObjectURL(new Blob([p.favicon], { type: 'image/png' }));
+    const el = tile({ faviconUrl: url });
+    el.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
+    ghost.replaceWith(el);
+  }
+};
+
+const streamTile = (p) => {
+  streamQueue.push(p);
+  if (!streamFrame) streamFrame = requestAnimationFrame(flushStream);
 };
 
 const updateProgress = () => {
@@ -483,6 +513,7 @@ const openProject = async (meta) => {
   }
   state.error = null;
   state.stage = 'busy';
+  state.busyKeys = null;
   state.ghosts = payload.records.length;
   state.progress = { done: 0, total: 1, phase: 'fetch' };
   renderMain();
@@ -661,7 +692,7 @@ const renderBusy = () =>
     'section',
     { class: 'work', style: { display: 'block' } },
     h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress', role: 'progressbar', 'aria-label': t('working'), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
-    h('div', { class: 'stage' }, h('ul', { class: 'gallery' }, Array.from({ length: state.ghosts }, () => h('li', null, h('div', { class: 'cell' }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' '))))))
+    h('div', { class: 'stage' }, h('ul', { class: 'gallery' }, Array.from({ length: state.ghosts }, (_, i) => h('li', null, h('div', { class: 'cell', dataset: state.busyKeys && state.busyKeys[i] ? { busyKey: state.busyKeys[i] } : {} }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' '))))))
   );
 
 const contrastFlag = (rec) => (rec.contrast === 'flagged' ? 'bad' : rec.status === 'default' || rec.status === 'stale' || rec.status === 'blocked' ? 'warn' : null);
@@ -1411,7 +1442,7 @@ const reharvest = async (rec, doneKey) => {
   if (!item.url) return;
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    const result = await client.call('harvest', { reset: false, targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
+    const result = await client.call('harvest', { reset: false, fresh: true, targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
     const next = result.items[0];
     const payload = result.records.find((r) => r.key === rec.key);
     if (!payload || !next || (next.flags || []).includes('stale-source')) {

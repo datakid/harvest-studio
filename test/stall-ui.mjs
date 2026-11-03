@@ -80,7 +80,7 @@ const poll = setInterval(async () => {
     texts.add(await page.evaluate(() => (document.querySelector('.progress-text') || {}).textContent || ''));
   } catch {}
 }, 400);
-await page.waitForFunction(() => document.querySelectorAll('.gallery .cell .tile-art:not(.ghost)').length > 0, null, { timeout: 120000 });
+await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
 clearInterval(poll);
 const elapsed = Date.now() - started;
 await page.waitForTimeout(800);

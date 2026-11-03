@@ -11,6 +11,7 @@ export * from './encode.js';
 export * from './atlas.js';
 export * from './profiles.js';
 export * from './pipeline.js';
+export * from './limiter.js';
 export * from './sources.js';
 export * from './palettes.js';
 export * from './ico.js';

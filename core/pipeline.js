@@ -1,3 +1,4 @@
+import { createLimiter } from './limiter.js';
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
 import { normalize, gate, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
@@ -333,6 +334,8 @@ export const analyzeIcon = async (img) => {
   return { gradient: strong ? tint : null, accent: strong ? null : tint, colour, glyph: await extractGlyph(img.data, lab, img.width, img.height) };
 };
 
+export const localCompute = { analyze: (image) => analyzeIcon(image), trace: (glyph, key, options) => traceGlyph(glyph, key, options) };
+
 const baseName = (p) => p.split('/').pop().split('?')[0];
 
 const readSymbols = (svg) => {
@@ -445,16 +448,18 @@ export const runHarvest = async (input, options = {}, io) => {
   const only = options.only ? new Set(options.only) : null;
   const limit = options.targetTimeoutMs === undefined ? (local ? 0 : TARGET_TIMEOUT_MS) : options.targetTimeoutMs;
   const inflight = new Set();
+  const limiter = local || options.limits === false ? null : createLimiter(options.limits || {});
+  const netIo = limiter ? { ...io, fetchBytes: (u, o) => limiter.run(u, () => io.fetchBytes(u, o)) } : io;
   const ticker = options.onProgress && !local ? setInterval(() => progress({ phase: 'fetch', done, total: targets.length, pending: [...inflight] }), options.tickMs || TICK_MS) : null;
   let results;
   try {
-    results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
+    results = await pool(targets, options.concurrency || 8, async (t) => {
       if (only && !only.has(t.key)) {
         progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: 'skipped', pending: [...inflight] });
         return { key: t.key, url: t.url, status: 'skipped' };
       }
       inflight.add(t.key);
-      const run = processTarget(t, { io, overrides, pins, local });
+      const run = processTarget(t, { io: netIo, overrides, pins, local });
       const r = limit ? await withDeadline(t, run, limit) : await run;
       inflight.delete(t.key);
       if (options.onTarget) await options.onTarget(r);
@@ -473,6 +478,30 @@ export const runHarvest = async (input, options = {}, io) => {
     return rec;
   };
   const traceQueue = [];
+  const memoOut = new Map();
+  const compute = options.compute || localCompute;
+  const analyses = new Map();
+  const hashes = new Map();
+  const reuse = options.reuse || null;
+  const reused = new Set();
+  for (const r of results) {
+    if (!r.image) continue;
+    const hash = await pixelHash(r.image);
+    hashes.set(r.key, hash);
+    const memo = reuse && reuse.get(r.key);
+    if (memo && memo.hash === hash) {
+      reused.add(r.key);
+      analyses.set(r.key, Promise.resolve({ value: memo.analysis }));
+      continue;
+    }
+    analyses.set(
+      r.key,
+      compute.analyze(r.image).then(
+        (value) => ({ value }),
+        (e) => ({ error: errText(e) })
+      )
+    );
+  }
   for (const r of results) {
     const prev = previous.prev.get(r.key) || null;
     if (!local && !prev && io.readKnown && !r.image && !r.fa && !r.protected && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
@@ -480,13 +509,13 @@ export const runHarvest = async (input, options = {}, io) => {
     if (r.image) {
       rec.image = r.image;
       rec.original = r.original || null;
-      rec.hash = await pixelHash(r.image);
+      if (!hashes.has(r.key)) hashes.set(r.key, await pixelHash(r.image));
+      rec.hash = hashes.get(r.key);
       let analysis = { gradient: null, accent: null, colour: null, glyph: null };
-      try {
-        analysis = await analyzeIcon(r.image);
-      } catch (e) {
-        r.analysisError = errText(e);
-      }
+      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image).then((value) => ({ value }), (e) => ({ error: errText(e) })));
+      const analysed = await analyses.get(r.key);
+      if (analysed.error) r.analysisError = analysed.error;
+      else analysis = analysed.value;
       const catalogue = !analysis.gradient && !legacy ? targetOf.get(r.key).catalogueTint || null : null;
       const accent = !analysis.gradient && !catalogue && !legacy ? analysis.accent : null;
       rec.base = analysis.gradient || catalogue || accent;
@@ -495,6 +524,7 @@ export const runHarvest = async (input, options = {}, io) => {
       if (catalogue) rec.tintSource = 'catalogue';
       else if (accent) rec.tintSource = 'accent';
       rec.colour = analysis.colour;
+      if (!analysed.error) memoOut.set(r.key, { hash: rec.hash, analysis, trace: null });
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
@@ -534,26 +564,33 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   let traced = 0;
-  for (const rec of traceQueue) {
-    rec.trace = await traceGlyph(rec.glyphImage, rec.key);
-    progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
-  }
+  await Promise.all(
+    traceQueue.map(async (rec) => {
+      const memo = reused.has(rec.key) ? reuse.get(rec.key) : null;
+      rec.trace = memo && memo.trace ? memo.trace : await compute.trace(rec.glyphImage, rec.key);
+      rec.rawTrace = rec.trace;
+      progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
+    })
+  );
 
+  for (const rec of traceQueue) if (memoOut.has(rec.key)) memoOut.get(rec.key).trace = rec.rawTrace;
   const strokeRetraced = [];
   const widths = traceQueue.filter((r) => r.trace && r.trace.accepted && r.trace.stroke).map((r) => r.trace.stroke).sort((a, b) => a - b);
   if (widths.length >= 5) {
     const median = widths[Math.floor(widths.length / 2)];
-    for (const rec of traceQueue) {
-      if (!rec.trace || !rec.trace.accepted) continue;
+    const outliers = traceQueue.filter((rec) => {
+      if (!rec.trace || !rec.trace.accepted) return false;
       const ratio = rec.trace.stroke / median;
-      if (ratio <= STROKE_OUTLIER && ratio >= 1 / STROKE_OUTLIER) continue;
-      const bias = ratio > 1 ? STROKE_BIAS : -STROKE_BIAS;
-      const retry = await traceGlyph(rec.glyphImage, rec.key, { bias });
+      return ratio > STROKE_OUTLIER || ratio < 1 / STROKE_OUTLIER;
+    });
+    const retries = await Promise.all(outliers.map((rec) => compute.trace(rec.glyphImage, rec.key, { bias: rec.trace.stroke / median > 1 ? STROKE_BIAS : -STROKE_BIAS })));
+    outliers.forEach((rec, i) => {
+      const retry = retries[i];
       if (retry.accepted && Math.abs(Math.log(retry.stroke / median)) < Math.abs(Math.log(rec.trace.stroke / median))) {
         rec.trace = { ...retry, retraced: true, strokeWas: rec.trace.stroke };
         strokeRetraced.push(rec.key);
       }
-    }
+    });
   }
 
   const appOf = new Map(targets.map((t) => [t.key, t.appId]));
@@ -654,7 +691,7 @@ export const runHarvest = async (input, options = {}, io) => {
     })
   };
   exported.files['harvest-report.json'] = new TextEncoder().encode(stableStringify(report));
-  return { records: sorted, results, report, export: exported, validKeys, entries: byKey };
+  return { records: sorted, results, report, export: exported, validKeys, entries: byKey, reusable: memoOut, reusedKeys: [...reused], limiter: limiter ? limiter.stats : null };
 };
 
 export { canonicalJson, EXT_BY_NAME, KEY_RE, buildTargets, extrasToTargets, mergeTargets };

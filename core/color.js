@@ -37,11 +37,22 @@ export const fromOklab = (L, a, b) => {
   ];
 };
 
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, '0'));
+
 export const oklchHex = (L, C, h) => {
+  const cos = Math.cos(h);
+  const sin = Math.sin(h);
   for (let i = Math.round(C / 0.005); i >= 0; i--) {
     const c = i * 0.005;
-    const rgb = fromOklab(L, c * Math.cos(h), c * Math.sin(h));
-    if (rgb.every((v) => v >= -1e-4 && v <= 1.0001)) return '#' + rgb.map((v) => linToSrgb(v).toString(16).padStart(2, '0')).join('');
+    const a = c * cos;
+    const b = c * sin;
+    const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+    const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+    const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+    const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+    const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+    const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
+    if (r >= -1e-4 && r <= 1.0001 && g >= -1e-4 && g <= 1.0001 && bl >= -1e-4 && bl <= 1.0001) return '#' + HEX[linToSrgb(r)] + HEX[linToSrgb(g)] + HEX[linToSrgb(bl)];
   }
   return '#808080';
 };
@@ -65,7 +76,12 @@ export const hexToLab = (hex) => {
   return toOklab(r, g, b);
 };
 
-export const deltaE = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+export const deltaE = (a, b) => {
+  const x = a[0] - b[0];
+  const y = a[1] - b[1];
+  const z = a[2] - b[2];
+  return Math.sqrt(x * x + y * y + z * z);
+};
 
 export const hexToLch = (hex) => {
   const [L, a, b] = hexToLab(hex);
@@ -140,7 +156,12 @@ const gridPoints = (data, w, h) => {
   return points;
 };
 
-const labDistance = (p, c) => Math.hypot(p.L - c.L, p.a - c.a, p.b - c.b);
+const labDistance = (p, c) => {
+  const x = p.L - c.L;
+  const y = p.a - c.a;
+  const z = p.b - c.b;
+  return Math.sqrt(x * x + y * y + z * z);
+};
 
 const seedCentres = (points, k) => {
   let first = 0;
@@ -166,36 +187,69 @@ const seedCentres = (points, k) => {
 
 export const clusterColours = (points, k = KMEANS_K, iterations = KMEANS_ITERATIONS) => {
   if (!points.length) return [];
-  const centres = seedCentres(points, k);
-  const owner = new Int16Array(points.length);
+  const seeds = seedCentres(points, k);
+  const n = points.length;
+  const pl = new Float64Array(n);
+  const pa = new Float64Array(n);
+  const pb = new Float64Array(n);
+  const pw = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    pl[i] = points[i].L;
+    pa[i] = points[i].a;
+    pb[i] = points[i].b;
+    pw[i] = points[i].w;
+  }
+  const kk = seeds.length;
+  const cl = new Float64Array(kk);
+  const ca = new Float64Array(kk);
+  const cb = new Float64Array(kk);
+  for (let c = 0; c < kk; c++) {
+    cl[c] = seeds[c].L;
+    ca[c] = seeds[c].a;
+    cb[c] = seeds[c].b;
+  }
+  const owner = new Int16Array(n);
+  const sw = new Float64Array(kk);
+  const sl = new Float64Array(kk);
+  const sa = new Float64Array(kk);
+  const sb = new Float64Array(kk);
   for (let it = 0; it < iterations; it++) {
-    const sums = centres.map(() => ({ w: 0, L: 0, a: 0, b: 0 }));
-    for (let i = 0; i < points.length; i++) {
+    sw.fill(0);
+    sl.fill(0);
+    sa.fill(0);
+    sb.fill(0);
+    for (let i = 0; i < n; i++) {
       let best = 0;
       let bestD = Infinity;
-      for (let c = 0; c < centres.length; c++) {
-        const d = labDistance(points[i], centres[c]);
+      for (let c = 0; c < kk; c++) {
+        const x = pl[i] - cl[c];
+        const y = pa[i] - ca[c];
+        const z = pb[i] - cb[c];
+        const d = x * x + y * y + z * z;
         if (d < bestD) {
           bestD = d;
           best = c;
         }
       }
       owner[i] = best;
-      const s = sums[best];
-      s.w += points[i].w;
-      s.L += points[i].L * points[i].w;
-      s.a += points[i].a * points[i].w;
-      s.b += points[i].b * points[i].w;
+      sw[best] += pw[i];
+      sl[best] += pl[i] * pw[i];
+      sa[best] += pa[i] * pw[i];
+      sb[best] += pb[i] * pw[i];
     }
-    for (let c = 0; c < centres.length; c++) {
-      if (sums[c].w) centres[c] = { L: sums[c].L / sums[c].w, a: sums[c].a / sums[c].w, b: sums[c].b / sums[c].w };
+    for (let c = 0; c < kk; c++) {
+      if (sw[c]) {
+        cl[c] = sl[c] / sw[c];
+        ca[c] = sa[c] / sw[c];
+        cb[c] = sb[c] / sw[c];
+      }
     }
   }
-  const total = points.reduce((n, p) => n + p.w, 0);
-  const stats = centres.map((c) => ({ ...c, w: 0, edge: 0 }));
-  for (let i = 0; i < points.length; i++) {
-    stats[owner[i]].w += points[i].w;
-    if (points[i].edge) stats[owner[i]].edge += points[i].w;
+  const total = points.reduce((m, p) => m + p.w, 0);
+  const stats = Array.from({ length: kk }, (_, c) => ({ L: cl[c], a: ca[c], b: cb[c], w: 0, edge: 0 }));
+  for (let i = 0; i < n; i++) {
+    stats[owner[i]].w += pw[i];
+    if (points[i].edge) stats[owner[i]].edge += pw[i];
   }
   return stats
     .filter((s) => s.w > 0)

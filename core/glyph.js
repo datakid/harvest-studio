@@ -124,28 +124,39 @@ export const extractGlyph = async (data, lab, w, h) => {
   };
 
   const uniformAlpha = () => {
-    const band = [];
-    for (let p = 0; p < n; p++) {
-      if (data[p * 4 + 3] < 200) continue;
-      if (nearEdge(p, 3)) band.push(p);
-    }
-    if (!band.length) return null;
+    let count = 0;
     let L = 0;
     let A = 0;
     let B = 0;
-    for (const p of band) {
+    const band = new Uint8Array(n);
+    for (let p = 0; p < n; p++) {
+      if (data[p * 4 + 3] < 200 || !nearEdge(p, 3)) continue;
+      band[p] = 1;
+      count++;
       L += lab[p * 3];
       A += lab[p * 3 + 1];
       B += lab[p * 3 + 2];
     }
-    L /= band.length;
-    A /= band.length;
-    B /= band.length;
+    if (!count) return null;
+    L /= count;
+    A /= count;
+    B /= count;
     let spread = 0;
-    for (const p of band) spread += Math.hypot(lab[p * 3] - L, lab[p * 3 + 1] - A, lab[p * 3 + 2] - B);
-    if (spread / band.length > 0.06) return null;
+    for (let p = 0; p < n; p++) {
+      if (!band[p]) continue;
+      const dl = lab[p * 3] - L;
+      const da = lab[p * 3 + 1] - A;
+      const db = lab[p * 3 + 2] - B;
+      spread += Math.sqrt(dl * dl + da * da + db * db);
+    }
+    if (spread / count > 0.06) return null;
     const alpha = new Float32Array(n);
-    for (let p = 0; p < n; p++) alpha[p] = (data[p * 4 + 3] / 255) * smooth(0.08, 0.22, Math.hypot(lab[p * 3] - L, lab[p * 3 + 1] - A, lab[p * 3 + 2] - B));
+    for (let p = 0; p < n; p++) {
+      const dl = lab[p * 3] - L;
+      const da = lab[p * 3 + 1] - A;
+      const db = lab[p * 3 + 2] - B;
+      alpha[p] = (data[p * 4 + 3] / 255) * smooth(0.08, 0.22, Math.sqrt(dl * dl + da * da + db * db));
+    }
     return alpha;
   };
 
@@ -190,11 +201,21 @@ export const extractGlyph = async (data, lab, w, h) => {
         if (x > comp.x1) comp.x1 = x;
         if (y < comp.y0) comp.y0 = y;
         if (y > comp.y1) comp.y1 = y;
-        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1]) {
-          if (q >= 0 && alpha[q] >= 0.5 && label[q] < 0) {
-            label[q] = id;
-            stack.push(q);
-          }
+        if (x > 0 && alpha[p - 1] >= 0.5 && label[p - 1] < 0) {
+          label[p - 1] = id;
+          stack.push(p - 1);
+        }
+        if (x < w - 1 && alpha[p + 1] >= 0.5 && label[p + 1] < 0) {
+          label[p + 1] = id;
+          stack.push(p + 1);
+        }
+        if (y > 0 && alpha[p - w] >= 0.5 && label[p - w] < 0) {
+          label[p - w] = id;
+          stack.push(p - w);
+        }
+        if (y < h - 1 && alpha[p + w] >= 0.5 && label[p + w] < 0) {
+          label[p + w] = id;
+          stack.push(p + w);
         }
       }
       comps.push(comp);
@@ -434,30 +455,53 @@ export const otsuThreshold = (values) => {
 };
 
 const dilate = (mask, w, h) => {
+  const horizontal = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let v = mask[row + x];
+      if (x > 0) v |= mask[row + x - 1];
+      if (x < w - 1) v |= mask[row + x + 1];
+      horizontal[row + x] = v;
+    }
+  }
   const out = new Uint8Array(mask.length);
   for (let y = 0; y < h; y++) {
+    const row = y * w;
     for (let x = 0; x < w; x++) {
-      let on = 0;
-      for (let dy = -1; dy <= 1 && !on; dy++) {
-        const yy = y + dy;
-        if (yy < 0 || yy >= h) continue;
-        for (let dx = -1; dx <= 1; dx++) {
-          const xx = x + dx;
-          if (xx >= 0 && xx < w && mask[yy * w + xx]) {
-            on = 1;
-            break;
-          }
-        }
-      }
-      out[y * w + x] = on;
+      const i = row + x;
+      let v = horizontal[i];
+      if (y > 0) v |= horizontal[i - w];
+      if (y < h - 1) v |= horizontal[i + w];
+      out[i] = v;
     }
   }
   return out;
 };
 
 const erode = (mask, w, h) => {
-  const inverted = mask.map((v) => 1 - v);
-  return dilate(inverted, w, h).map((v) => 1 - v);
+  const horizontal = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      let v = mask[row + x];
+      if (x > 0) v &= mask[row + x - 1];
+      if (x < w - 1) v &= mask[row + x + 1];
+      horizontal[row + x] = v;
+    }
+  }
+  const out = new Uint8Array(mask.length);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const i = row + x;
+      let v = horizontal[i];
+      if (y > 0) v &= horizontal[i - w];
+      if (y < h - 1) v &= horizontal[i + w];
+      out[i] = v;
+    }
+  }
+  return out;
 };
 
 const subPaths = (d) => (d.match(/M/gi) || []).length;
@@ -497,13 +541,14 @@ export const traceGlyph = async (glyph, key, { bias = 0 } = {}) => {
   const mask = maskOf(glyph, THRESHOLD + bias);
   const { width: w, height: h } = glyph;
   const luma = await upscaledLuma(glyph);
-  const inputs = { cleaned: traceMask(luma, true, bias), plain: traceMask(luma, false, bias) };
+  const inputs = {};
+  const inputOf = (variant) => (inputs[variant] ||= traceMask(luma, variant === 'cleaned', bias));
   const potrace = await potraceReady();
   const optimize = await svgoReady();
   const traced = new Map();
   const tracedWith = async (variant, options) => {
     const id = variant + (options === TRACE ? 'a' : 'b');
-    if (!traced.has(id)) traced.set(id, await potrace(inputs[variant], { ...options }));
+    if (!traced.has(id)) traced.set(id, await potrace(inputOf(variant), { ...options }));
     return traced.get(id);
   };
   const candidate = async (variant, options, digits) => {
@@ -511,7 +556,7 @@ export const traceGlyph = async (glyph, key, { bias = 0 } = {}) => {
     if (!raw) return null;
     const optimised = optimize(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${raw}"/></svg>`, {
       multipass: true,
-      plugins: [{ name: 'preset-default', params: { overrides: { convertPathData: { floatPrecision: digits } } } }]
+      plugins: [{ name: 'convertPathData', params: { floatPrecision: digits } }]
     });
     const m = /\sd="([^"]+)"/.exec(optimised.data);
     const d = m ? m[1] : raw;

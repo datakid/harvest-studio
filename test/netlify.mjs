@@ -350,7 +350,7 @@ await check('T2.9 the first screen shows no proxy warning and Settings says the 
 await check('T2.9 a Netlify site on the known list is harvested with no token typed in', async () => {
   await tab.locator('#urls').fill('https://stub-protected.netlify.app/');
   await tab.click('#go');
-  await tab.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await tab.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await tab.locator('.gallery .cell').count(), 1);
   const proxied = seenRequests.filter((r) => r.url.startsWith('/api/fetch?url='));
   assert.ok(proxied.length >= 2);

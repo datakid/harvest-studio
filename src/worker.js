@@ -20,6 +20,7 @@ import {
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
+import { cacheGet, cachePut, cacheTouch, cacheFresh } from './cache.js';
 
 const FETCH_TIMEOUT = 20000;
 let wasmBase = './wasm/';
@@ -42,6 +43,7 @@ let lastReport = null;
 let knownIndex = null;
 let knownUrls = null;
 let settings = { proxyUrl: '', proxyToken: '' };
+let revalidate = false;
 
 const makeIo = () => ({
   fetchBytes: async (url, options = {}) => {
@@ -63,9 +65,19 @@ const makeIo = () => ({
       return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null, protection: netlifyProtection(res.status, headersReader(res.headers)) };
     }
     const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
+    const cacheKey = url + (options.head ? '#head' : '');
+    const hit = await cacheGet(cacheKey);
+    const served = (entry) => ({ ok: true, status: entry.status, url: entry.url, bytes: entry.bytes, mitigated: null, protection: null, cached: true });
+    if (hit && !revalidate && cacheFresh(hit)) {
+      cacheTouch(hit);
+      return served(hit);
+    }
+    const conditional = {};
+    if (hit && hit.etag) conditional['if-none-match'] = hit.etag;
+    else if (hit && hit.lastModified) conditional['if-modified-since'] = hit.lastModified;
     let res;
     try {
-      res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+      res = await fetch(target, { headers: { ...(settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}), ...conditional }, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
     } catch (err) {
       if (err && err.name === 'TimeoutError') {
         const e = new Error('the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds');
@@ -96,7 +108,16 @@ const makeIo = () => ({
       throw e;
     }
     const upstream = Number(res.headers.get('x-upstream-status')) || res.status;
-    return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated'), protection: res.headers.get('x-upstream-protection') };
+    if (upstream === 304 && hit) {
+      cacheTouch(hit);
+      return served(hit);
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const out = { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes, mitigated: res.headers.get('x-vercel-mitigated'), protection: res.headers.get('x-upstream-protection') };
+    if (out.ok && !out.mitigated && !out.protection && bytes.length) {
+      cachePut({ key: cacheKey, status: upstream, url: out.url, etag: res.headers.get('x-upstream-etag') || null, lastModified: res.headers.get('x-upstream-last-modified') || null, bytes });
+    }
+    return out;
   },
   readLocal: async () => null,
   readKnown: async (key, url) => {
@@ -140,6 +161,21 @@ const serialise = async (rec) => {
 };
 
 let reportItems = new Map();
+const reusePool = new Map();
+
+const mapLimit = async (items, n, fn) => {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    })
+  );
+  return out;
+};
 
 const summarise = () => {
   const items = [...reportItems.values()];
@@ -148,6 +184,7 @@ const summarise = () => {
 };
 
 const runBatch = async (p, post) => {
+  revalidate = !!p.fresh;
   const targets = p.targets.map((t) => ({ ...t }));
   shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   const pins = { ...(await shippedPins), ...(p.pins || {}) };
@@ -160,6 +197,7 @@ const runBatch = async (p, post) => {
       preview: true,
       faFallback: !!p.faFallback,
       cell: p.cell || DEFAULT_CELL,
+      reuse: reusePool,
       now: new Date().toISOString(),
       onProgress: (e) => post({ progress: e }),
       onTarget: async (r) => {
@@ -170,10 +208,10 @@ const runBatch = async (p, post) => {
     makeIo()
   );
   for (const r of result.records) records.set(r.key, r);
+  for (const [k, v] of result.reusable) reusePool.set(k, v);
   for (const i of result.report.items) reportItems.set(i.key, i);
   lastReport = { ...result.report, items: [...reportItems.values()].sort((a, b) => (a.key < b.key ? -1 : 1)), summary: summarise() };
-  const out = [];
-  for (const r of result.records) out.push(await serialise(r));
+  const out = await mapLimit(result.records, 4, serialise);
   const transfer = [];
   for (const r of out) {
     if (r.favicon) transfer.push(r.favicon.buffer);

@@ -1,0 +1,71 @@
+{
+  "categories": [
+    {
+      "id": "core",
+      "label": {
+        "en": "Core apps",
+        "ar": "الأساسية"
+      },
+      "apps": [
+        {
+          "id": "alpha",
+          "title": {
+            "en": "Alpha Prime",
+            "ar": "ألفا"
+          },
+          "url": "https://alpha.example.com/",
+          "icon": "fa-bolt",
+          "gradient": [
+            "#112233",
+            "#445566",
+            "#778899"
+          ]
+        },
+        {
+          "id": "beta",
+          "title": {
+            "en": "Beta",
+            "ar": "بيتا"
+          },
+          "url": "https://beta.example.com/",
+          "icon": "fa-eye"
+        },
+        {
+          "id": "gamma",
+          "title": {
+            "en": "Gamma",
+            "ar": "جاما"
+          },
+          "variants": [
+            {
+              "id": "one",
+              "label": {
+                "en": "First",
+                "ar": "واحد"
+              },
+              "url": "https://gamma.example.com/one"
+            },
+            {
+              "id": "two",
+              "label": {
+                "en": "Two",
+                "ar": "اثنان"
+              },
+              "url": "https://gamma.example.com/two"
+            }
+          ],
+          "icon": "fa-cube"
+        },
+        {
+          "id": "delta",
+          "title": {
+            "en": "Delta",
+            "ar": "دلتا"
+          },
+          "url": "https://delta.example.com/",
+          "icon": "fa-star"
+        }
+      ]
+    }
+  ]
+}

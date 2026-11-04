@@ -1,0 +1,105 @@
+{
+  "summary": {
+    "total": 4
+  },
+  "polish": {
+    "tiles": 4,
+    "glyphTiles": 3,
+    "rasterFallbacks": 1,
+    "contrastFlags": 0,
+    "similarPairs": 1,
+    "strokeRetraced": [
+      "alpha"
+    ]
+  },
+  "items": [
+    {
+      "key": "alpha",
+      "status": "found",
+      "source": {
+        "type": "svg",
+        "href": "https://alpha-new.example.com/icon.svg"
+      },
+      "tint": [
+        "#112233",
+        "#445566",
+        "#778899"
+      ],
+      "trace": {
+        "accepted": true,
+        "iou": 0.971,
+        "reason": null
+      },
+      "glyph": "symbol",
+      "why": null,
+      "error": null
+    },
+    {
+      "key": "beta",
+      "status": "found",
+      "source": {
+        "type": "png",
+        "href": "https://beta.example.com/icon.png"
+      },
+      "tint": [
+        "#aa3344",
+        "#dd7788",
+        "#551122"
+      ],
+      "trace": null,
+      "glyph": "raster",
+      "why": [
+        "similar-to:alpha"
+      ],
+      "error": null
+    },
+    {
+      "key": "gamma--three",
+      "status": "found",
+      "source": {
+        "type": "apple-touch-icon",
+        "href": "https://gamma.example.com/touch.png"
+      },
+      "tint": [
+        "#3a6",
+        "#7c9",
+        "#154"
+      ],
+      "trace": {
+        "accepted": false,
+        "iou": 0.88,
+        "reason": "trace IoU below 0.93"
+      },
+      "glyph": "raster",
+      "why": null,
+      "error": null
+    },
+    {
+      "key": "epsilon",
+      "status": "blocked",
+      "source": null,
+      "tint": null,
+      "trace": null,
+      "glyph": null,
+      "why": null,
+      "error": "challenge page without icon links"
+    },
+    {
+      "key": "gamma--one",
+      "status": "stale",
+      "source": {
+        "type": "bundled",
+        "href": "known-icons/gamma--one.png"
+      },
+      "tint": [
+        "#3a6",
+        "#7c9",
+        "#154"
+      ],
+      "trace": null,
+      "glyph": null,
+      "why": null,
+      "error": null
+    }
+  ]
+}

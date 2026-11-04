@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodePool } from './node-pool.mjs';
-import { runHarvest, buildTargets, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
+import { runHarvest, buildTargets, buildFihristTargets, isFihrist, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
@@ -12,7 +12,7 @@ const repoRoot = process.cwd();
 const knownDir = path.join(studioDir, 'config', 'known-icons');
 
 const parseArgs = (argv) => {
-  const out = { from: null, profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null, workers: null };
+  const out = { from: null, set: 'launcher', profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null, workers: null };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -20,15 +20,21 @@ const parseArgs = (argv) => {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--from') out.from = path.resolve(take(i++, a));
+    else if (a === '--set') out.set = take(i++, a);
     else if (a === '--profile') out.profile = take(i++, a);
     else if (a === '--out') out.out = path.resolve(take(i++, a));
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
     else if (a === '--fa-fallback') out.faFallback = true;
     else if (a === '--workers') out.workers = Number(take(i++, a));
-    else if (a === '--only') out.only = take(i++, a).split(',').map((k) => k.trim()).filter(Boolean);
+    else if (a === '--only') {
+      const v = take(i++, a);
+      out.only = v === 'none' ? [] : v.split(',').map((k) => k.trim()).filter(Boolean);
+      if (v !== 'none' && !out.only.length) out.onlyEmpty = true;
+    }
     else throw new Error('unknown flag ' + a);
   }
+  if (!['launcher', 'fihrist'].includes(out.set)) throw new Error('--set must be launcher or fihrist');
   if (!['launcher', 'legacy-v1'].includes(out.profile)) throw new Error('--profile must be launcher or legacy-v1');
   if (out.seed !== null && !/^[0-9a-f]{8}$/.test(out.seed)) throw new Error('--seed must be 8 hex characters');
   return out;
@@ -54,24 +60,25 @@ const main = async () => {
   let catalog;
   try {
     catalog = JSON.parse(await fs.readFile(args.links, 'utf8'));
-    if (!catalog || !Array.isArray(catalog.categories)) throw new Error('missing categories');
+    if (args.set === 'fihrist' ? !isFihrist(catalog) : !catalog || !Array.isArray(catalog.categories)) throw new Error(args.set === 'fihrist' ? 'not a Fihrist file' : 'missing categories');
   } catch (e) {
     console.error('links file is invalid: ' + errText(e));
     return 1;
   }
   const overridesPath = path.join(studioDir, 'config', 'icon-overrides.json');
   const extrasPath = path.join(studioDir, 'config', 'extras.json');
-  const overrides = await readJson(overridesPath, {});
-  const pins = await readJson(path.join(studioDir, 'config', 'source-pins.json'), {});
-  const extras = extrasToTargets(await readJson(extrasPath, {}));
-  const targets = mergeTargets(buildTargets(catalog), extras);
+  const setTargets = args.set === 'fihrist' ? buildFihristTargets(catalog, 'en') : buildTargets(catalog);
+  const overrides = { ...(await readJson(overridesPath, {})), ...(await readJson(path.join(repoRoot, 'config', 'icon-overrides.json'), {})) };
+  const pins = { ...(await readJson(path.join(studioDir, 'config', 'source-pins.json'), {})), ...(await readJson(path.join(repoRoot, 'config', 'source-pins.json'), {})) };
+  const extras = args.set === 'fihrist' ? [] : extrasToTargets(await readJson(extrasPath, {}));
+  const targets = mergeTargets(setTargets, extras);
   const shippedCatalogue = await readJson(path.join(studioDir, 'config', 'catalogue.json'), { categories: [] });
   const shippedKeys = new Map(mergeTargets(buildTargets(shippedCatalogue), extrasToTargets(await readJson(extrasPath, {}))).map((t) => [urlIdentity(t.url), t.key]));
   if (args.only) {
     const known = new Set(targets.map((t) => t.key));
     const unknown = args.only.filter((k) => !known.has(k));
-    if (!args.only.length || unknown.length) {
-      console.error(args.only.length ? '--only has unknown keys: ' + unknown.join(', ') : '--only needs at least one key');
+    if (args.onlyEmpty || unknown.length) {
+      console.error(unknown.length ? '--only has unknown keys: ' + unknown.join(', ') : '--only needs at least one key');
       return 1;
     }
   }
@@ -135,7 +142,7 @@ const main = async () => {
   let result;
   try {
     result = await runHarvest(
-      { targets, overrides, pins, launcherIds: buildTargets(catalog).map((t) => t.key) },
+      { targets, overrides, pins, launcherIds: setTargets.map((t) => t.key) },
       { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only, compute: pool || undefined },
       io
     );

@@ -30,11 +30,12 @@ const server = await serve(4181, proxy);
 const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
-const open = async (viewport, scheme = 'light') => {
+const open = async (viewport, scheme = 'light', before = null) => {
   const ctx = await browser.newContext({ viewport, colorScheme: scheme, acceptDownloads: true });
   const page = await ctx.newPage();
   page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && logs.push(m.type() + ': ' + m.text()));
   page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
+  if (before) await before(page);
   await page.goto('http://localhost:4181/');
   return page;
 };
@@ -43,7 +44,7 @@ const harvest = async (page) => {
   await page.waitForSelector('.chip');
   await page.evaluate(() => { window.__goAt = performance.now(); });
   await page.click('#go');
-  await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForTimeout(1500);
 };
 const shot = async (page, name) => shots && (await page.screenshot({ path: path.join(shots, name + '.png') }));
@@ -77,7 +78,7 @@ await page.waitForTimeout(300);
 await shot(page, 'mono-light');
 
 await check('per-icon colour change locks the icon', async () => {
-  await page.getByRole('radio', { name: 'Follow' }).click();
+  await page.getByRole('radio', { name: 'Separate' }).click();
   await page.locator('.cell').first().click();
   await page.locator('.inspector .picker input').fill('#12b886');
   await page.locator('.inspector .picker input').dispatchEvent('change');
@@ -179,7 +180,7 @@ await single.reload();
 await check('a single site address is harvested through the proxy', async () => {
   await single.locator('#urls').fill('demo.example.com');
   await single.click('#go');
-  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await single.locator('.gallery .cell').count(), 1);
   assert.ok(await single.getByText('Found').count());
   assert.ok(await single.getByText(/png http/).count());
@@ -209,7 +210,7 @@ await check('a text favicon is drawn in the browser worker with the bundled font
   assert.equal(await single.locator('[role="progressbar"]').getAttribute('aria-valuemin'), '0');
   assert.ok((await single.locator('[role="progressbar"]').getAttribute('aria-valuenow')) !== null);
   await font;
-  await single.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await single.locator('.gallery .cell').first().click();
   assert.ok(await single.getByText(/svg http/).count());
 });
@@ -217,6 +218,7 @@ await check('a wrong proxy token explains itself', async () => {
   await single.keyboard.press('Escape');
   await single.evaluate(() => sessionStorage.setItem('hs:token', 'wrong'));
   await single.reload();
+  await single.evaluate(() => new Promise((resolve) => { const req = indexedDB.deleteDatabase('hs:cache'); req.onsuccess = req.onerror = req.onblocked = () => resolve(); }));
   await single.locator('#urls').fill('demo.example.com');
   await single.click('#go');
   await single.waitForSelector('.note.bad', { timeout: 120000 });
@@ -228,8 +230,8 @@ await check('a json file shows what was found and lets the fields be changed', a
   await single.reload();
   await single.setInputFiles('#pick-files', [path.join(fixturesDir, '..', 'links.json')]);
   await single.waitForSelector('.scan');
-  assert.ok(await single.getByText(/Found 32 in launcher catalogue/).count());
-  assert.ok(await single.getByRole('button', { name: 'Harvest 32 icons' }).count());
+  assert.ok(await single.getByText(/Found 34 in launcher catalogue/).count());
+  assert.ok(await single.getByRole('button', { name: 'Harvest 34 icons' }).count());
   await single.reload();
   await single.setInputFiles('#pick-files', [{ name: 'tools.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ tools: [{ name: 'A', homepage: 'https://a.test', logo: 'https://a.test/l.png' }, { name: 'B', homepage: 'https://b.test', logo: 'https://b.test/l.png' }] })) }]);
   await single.waitForSelector('.scan select');
@@ -250,7 +252,7 @@ await check('names given as language objects follow a language picker in the imp
   assert.ok(await single.locator('.scan li').first().innerText().then((x) => x.startsWith('Alpha')));
 });
 
-const noProxy = await open({ width: 1200, height: 800 });
+const noProxy = await open({ width: 1200, height: 800 }, 'light', (p) => p.route(/api\/fetch\?probe=1/, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, mode: 'token' }) })));
 await check('a site that cannot be reached without a proxy is named in a notice next to the images that worked', async () => {
   await noProxy.setInputFiles('#pick-files', files.slice(0, 2));
   await noProxy.waitForSelector('.chip');
@@ -266,7 +268,7 @@ await check('the shipped catalogue harvests in one click with no proxy, protocol
   await fresh.waitForSelector('#harvest-catalogue');
   assert.match(await fresh.locator('#harvest-catalogue').innerText(), /34/);
   await fresh.click('#harvest-catalogue');
-  await fresh.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await fresh.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
   const state = await fresh.evaluate(() => {
     const items = [...window.__studio.state.items.values()];

@@ -32,7 +32,7 @@ const harvest = async (page) => {
   await page.setInputFiles('#pick-files', files);
   await page.waitForSelector('.chip');
   await page.click('#go');
-  await page.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForTimeout(500);
 };
 const recs = (page) => page.evaluate(() => [...window.__studio.state.records.values()].filter((r) => r.hasImage).map((r) => ({ key: r.key, tint: r.tint, locked: r.locked })));
@@ -115,7 +115,7 @@ await check('an existing set opens from its manifest and atlas with colours inta
   assert.match(await p.locator('#manifest-panel').innerText(), /33 icons/);
   assert.equal(await p.locator('#open-set').isEnabled(), true);
   await p.click('#open-set');
-  await p.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await p.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await p.locator('.gallery .cell').count(), Object.keys(manifest.icons).length);
   const got = Object.fromEntries((await recs(p)).map((r) => [r.key, r.tint]));
   for (const [key, e] of Object.entries(manifest.icons)) assert.deepEqual(got[key] || null, e.tint || null, key);
@@ -155,9 +155,9 @@ await check('work autosaves as a project that reopens after a reload', async () 
   const reloaded = await fresh();
   await reloaded.waitForSelector('.recent');
   assert.match(await reloaded.locator('.recent').first().innerText(), /Launcher set/);
-  assert.match(await reloaded.locator('.recent').first().innerText(), /33 icons/);
+  assert.match(await reloaded.locator('.recent').first().innerText(), /34 icons/);
   await reloaded.locator('.recent').first().click();
-  await reloaded.waitForSelector('.gallery .cell .tile-art:not(.ghost)', { timeout: 120000 });
+  await reloaded.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await reloaded.locator('.gallery .cell').count(), files.length);
   const now = (await recs(reloaded)).find((r) => r.key === key);
   assert.deepEqual(now.tint, tintBefore);

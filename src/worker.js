@@ -15,12 +15,16 @@ import {
   stableStringify,
   readHead,
   urlIdentity,
+  netlifyProtection,
+  headersReader,
   errText,
   DEFAULT_CELL
 } from '../core/index.js';
+import { cacheGet, cachePut, cacheTouch, cacheFresh } from './cache.js';
 
 const FETCH_TIMEOUT = 20000;
 let wasmBase = './wasm/';
+let shippedPins = null;
 configureRuntime({
   wasmSource: async (id) => {
     const res = await fetch(wasmBase + id + '.wasm');
@@ -39,6 +43,7 @@ let lastReport = null;
 let knownIndex = null;
 let knownUrls = null;
 let settings = { proxyUrl: '', proxyToken: '' };
+let revalidate = false;
 
 const makeIo = () => ({
   fetchBytes: async (url, options = {}) => {
@@ -47,24 +52,44 @@ const makeIo = () => ({
       try {
         res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(FETCH_TIMEOUT) });
       } catch (err) {
-        const e = new Error(err && err.name === 'TimeoutError' ? 'timed out after ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'needs the fetch proxy: this site does not allow direct browser access');
+        if (err && err.name === 'TimeoutError') {
+          const e = new Error('timed out after ' + FETCH_TIMEOUT / 1000 + ' seconds');
+          e.timeout = true;
+          throw e;
+        }
+        const e = new Error('needs the fetch proxy: this site does not allow direct browser access');
         e.fatal = true;
         throw e;
       }
       const bytes = options.head && res.body ? await readHead(res.body) : new Uint8Array(await res.arrayBuffer());
-      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null };
+      return { ok: res.ok, status: res.status, url: res.url || url, bytes, mitigated: null, protection: netlifyProtection(res.status, headersReader(res.headers)) };
     }
     const target = settings.proxyUrl + (settings.proxyUrl.includes('?') ? '&' : '?') + 'url=' + encodeURIComponent(url) + (options.head ? '&mode=head' : '');
+    const cacheKey = url + (options.head ? '#head' : '');
+    const hit = await cacheGet(cacheKey);
+    const served = (entry) => ({ ok: true, status: entry.status, url: entry.url, bytes: entry.bytes, mitigated: null, protection: null, cached: true });
+    if (hit && !revalidate && cacheFresh(hit)) {
+      cacheTouch(hit);
+      return served(hit);
+    }
+    const conditional = {};
+    if (hit && hit.etag) conditional['if-none-match'] = hit.etag;
+    else if (hit && hit.lastModified) conditional['if-modified-since'] = hit.lastModified;
     let res;
     try {
-      res = await fetch(target, { headers: settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
+      res = await fetch(target, { headers: { ...(settings.proxyToken ? { 'x-studio-token': settings.proxyToken } : {}), ...conditional }, signal: AbortSignal.timeout(FETCH_TIMEOUT) });
     } catch (err) {
-      const e = new Error(err && err.name === 'TimeoutError' ? 'the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds' : 'could not reach the proxy');
+      if (err && err.name === 'TimeoutError') {
+        const e = new Error('the proxy did not answer within ' + FETCH_TIMEOUT / 1000 + ' seconds');
+        e.timeout = true;
+        throw e;
+      }
+      const e = new Error('could not reach the proxy');
       e.fatal = true;
       throw e;
     }
     if (res.status === 401) {
-      const e = new Error('the proxy rejected the access token');
+      const e = new Error(settings.proxyToken ? 'the proxy rejected the access token' : 'the proxy needs an access token for this site, and serves only the known sites without one; add a proxy address and access token in Settings');
       e.fatal = true;
       throw e;
     }
@@ -83,7 +108,16 @@ const makeIo = () => ({
       throw e;
     }
     const upstream = Number(res.headers.get('x-upstream-status')) || res.status;
-    return { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes: new Uint8Array(await res.arrayBuffer()), mitigated: res.headers.get('x-vercel-mitigated') };
+    if (upstream === 304 && hit) {
+      cacheTouch(hit);
+      return served(hit);
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const out = { ok: upstream >= 200 && upstream < 300, status: upstream, url: res.headers.get('x-upstream-url') || url, bytes, mitigated: res.headers.get('x-vercel-mitigated'), protection: res.headers.get('x-upstream-protection') };
+    if (out.ok && !out.mitigated && !out.protection && bytes.length) {
+      cachePut({ key: cacheKey, status: upstream, url: out.url, etag: res.headers.get('x-upstream-etag') || null, lastModified: res.headers.get('x-upstream-last-modified') || null, bytes });
+    }
+    return out;
   },
   readLocal: async () => null,
   readKnown: async (key, url) => {
@@ -114,12 +148,82 @@ const serialise = async (rec) => {
     tint: rec.tint || null,
     sourceTint: rec.sourceTint || null,
     locked: !!rec.locked,
+    groupId: rec.groupId || null,
+    tight: !!rec.tight,
+    contrast: rec.contrast || null,
+    colour: rec.colour ? { share: rec.colour.share } : null,
     hash: rec.hash || null,
     trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
     favicon,
     glyph
   };
   return payload;
+};
+
+let reportItems = new Map();
+const reusePool = new Map();
+
+const mapLimit = async (items, n, fn) => {
+  const out = new Array(items.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(n, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        out[i] = await fn(items[i]);
+      }
+    })
+  );
+  return out;
+};
+
+const summarise = () => {
+  const items = [...reportItems.values()];
+  const count = (status) => items.filter((i) => i.status === status).length;
+  return { total: items.length, found: count('found'), override: count('override'), stale: count('stale'), blocked: count('blocked'), default: count('default'), notfound: count('notfound') };
+};
+
+const runBatch = async (p, post) => {
+  revalidate = !!p.fresh;
+  const targets = p.targets.map((t) => ({ ...t }));
+  shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const pins = { ...(await shippedPins), ...(p.pins || {}) };
+  const result = await runHarvest(
+    { targets, overrides: {}, pins },
+    {
+      profile: 'launcher',
+      seed: p.seed,
+      mode: p.mode === 'separate' ? 'separate' : 'keep',
+      preview: true,
+      faFallback: !!p.faFallback,
+      cell: p.cell || DEFAULT_CELL,
+      reuse: reusePool,
+      now: new Date().toISOString(),
+      onProgress: (e) => post({ progress: e }),
+      onTarget: async (r) => {
+        if (!r.image) return;
+        post({ progress: { phase: 'tile', key: r.key, favicon: await pngOf(r.image) } });
+      }
+    },
+    makeIo()
+  );
+  for (const r of result.records) records.set(r.key, r);
+  for (const [k, v] of result.reusable) reusePool.set(k, v);
+  for (const i of result.report.items) reportItems.set(i.key, i);
+  lastReport = { ...result.report, items: [...reportItems.values()].sort((a, b) => (a.key < b.key ? -1 : 1)), summary: summarise() };
+  const out = await mapLimit(result.records, 4, serialise);
+  const transfer = [];
+  for (const r of out) {
+    if (r.favicon) transfer.push(r.favicon.buffer);
+    if (r.glyph) transfer.push(r.glyph.buffer);
+  }
+  return { value: { records: out, items: result.report.items, summary: result.report.summary, polish: result.report.polish }, transfer };
+};
+
+const restoreOne = async (r) => {
+  const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
+  const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
+  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null });
 };
 
 const handlers = {
@@ -130,22 +234,26 @@ const handlers = {
   },
 
   async harvest(p, post) {
-    const targets = p.targets.map((t) => ({ ...t }));
-    const result = await runHarvest(
-      { targets, overrides: {} },
-      { profile: 'launcher', seed: p.seed, mode: 'keep', preview: true, faFallback: !!p.faFallback, cell: p.cell || DEFAULT_CELL, now: new Date().toISOString(), onProgress: (e) => post({ progress: e }) },
-      makeIo()
-    );
-    records = new Map(result.records.map((r) => [r.key, r]));
-    lastReport = result.report;
-    const out = [];
-    for (const r of result.records) out.push(await serialise(r));
-    const transfer = [];
-    for (const r of out) {
-      if (r.favicon) transfer.push(r.favicon.buffer);
-      if (r.glyph) transfer.push(r.glyph.buffer);
+    if (p.reset !== false) {
+      records = new Map();
+      reportItems = new Map();
     }
-    return { value: { records: out, items: result.report.items, summary: result.report.summary }, transfer };
+    return runBatch(p, post);
+  },
+
+  async add(p, post) {
+    return runBatch(p, post);
+  },
+
+  async remove(p) {
+    records.delete(p.key);
+    reportItems.delete(p.key);
+    return { ok: true, count: records.size };
+  },
+
+  async put(p) {
+    await restoreOne(p.record);
+    return { ok: true, count: records.size };
   },
 
   async importManifest(p) {
@@ -185,23 +293,8 @@ const handlers = {
 
   async restore(p) {
     records = new Map();
-    for (const r of p.records) {
-      const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
-      const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
-      records.set(r.key, {
-        key: r.key,
-        appId: r.appId,
-        status: r.status,
-        image,
-        glyphImage,
-        trace: r.trace || null,
-        base: r.base || null,
-        tint: r.tint || null,
-        sourceTint: r.sourceTint || null,
-        locked: !!r.locked,
-        hash: r.hash || null
-      });
-    }
+    reportItems = new Map();
+    for (const r of p.records) await restoreOne(r);
     return { ok: true, count: records.size };
   },
 

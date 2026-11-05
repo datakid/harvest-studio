@@ -101,9 +101,10 @@ await check('contrast guardrail flags a constructed low-contrast locked tint and
   assert.ok(!gate.ok && gate.failures[0].code === 'contrast');
 });
 
-await check('follow mode keeps singletons untouched and varies look-alikes inside their colour', () => {
-  const m = first.export.manifest;
-  const groups = first.report.colour.groups.flat();
+await check('follow mode keeps singletons untouched and varies look-alikes inside their colour', async () => {
+  const followed = await run({ mode: 'follow' });
+  const m = followed.export.manifest;
+  const groups = followed.report.colour.groups.flat();
   for (const [k, e] of Object.entries(m.icons)) {
     if (!e.tint) continue;
     if (!groups.includes(k)) assert.ok(!e.sourceTint || e.contrast === 'nudged' || true);
@@ -114,9 +115,9 @@ await check('follow mode keeps singletons untouched and varies look-alikes insid
 });
 
 await check('follow mode is deterministic per seed and differs between seeds', async () => {
-  const a = await run({ seed: 'aaaaaaaa' });
-  const b = await run({ seed: 'aaaaaaaa' });
-  const c = await run({ seed: 'bbbbbbbb' });
+  const a = await run({ seed: 'aaaaaaaa', mode: 'follow' });
+  const b = await run({ seed: 'aaaaaaaa', mode: 'follow' });
+  const c = await run({ seed: 'bbbbbbbb', mode: 'follow' });
   const tints = (r) => JSON.stringify(Object.values(r.export.manifest.icons).map((e) => e.tint));
   assert.equal(tints(a), tints(b));
   assert.notEqual(tints(a), tints(c));

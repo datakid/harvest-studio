@@ -1,8 +1,10 @@
+import { createLimiter } from './limiter.js';
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
-import { normalize, gate } from './pixels.js';
-import { imageToLab, extractGradient, extractAccent, hexToLab, isHex } from './color.js';
-import { extractGlyph, traceGlyph } from './glyph.js';
+import { normalize, gate, cropImage, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
+import { imageToLab, extractColours, tintFromHex, tintV4, v4Violations, STRONG_SHARE, hexToLab, isHex } from './color.js';
+import { extractGlyph, traceGlyph, traceGlyphAuto, glyphStats, GLYPH_V4_SIZE, GLYPH_V4_CONTENT } from './glyph.js';
+import { polishReport } from './polish.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
 import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
 import { applyMode, guardContrast, separateTints, MIN_TINT_SEP, DEFAULT_SEED } from './tints.js';
@@ -10,6 +12,7 @@ import { unpackAtlas, DEFAULT_CELL } from './atlas.js';
 import { buildLauncherExport, buildLegacyExport, stableStringify } from './profiles.js';
 import { decodeImage } from './decode.js';
 import { KEY_RE, buildTargets, extrasToTargets, mergeTargets } from './targets.js';
+import { PROTECTION_NETLIFY, NETLIFY_PROTECTED_MESSAGE } from './protection.js';
 
 export const BLOCK_STATUS = new Set([401, 403, 429]);
 export const CHALLENGE_RE = /security checkpoint|just a moment|attention required|authentication required|vercel\.com\/sso-api|_vercel\/(jwt|sso)|cf-chl|challenge-platform|x-vercel-challenge|checking your browser/i;
@@ -17,18 +20,43 @@ export const RASTER_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'svg', 'a
 
 const short = (href) => (href && href.startsWith('data:') ? href.slice(0, 60) : href);
 
-export const TARGET_TIMEOUT_MS = 25000;
+const PHOTO_SHARE = 0.4;
+const SOFT_ICO_PX = 64;
+export const LOW_RES = 'low-res';
+
+const hasSvgLink = (links) => links.some((l) => l.rel.includes('icon') && (/svg/i.test(l.type || '') || /\.svg(?:[?#]|$)/i.test(l.href || '')));
+
+const isRichSvg = (img) => {
+  if (chromaticColours(img) >= 2) return true;
+  const share = opaqueShare(img);
+  return share >= 0.04 && share <= 0.92;
+};
+
+export const DEFAULT_MODE = 'separate';
+export const STROKE_OUTLIER = 1.6;
+export const STROKE_BIAS = 40;
+
+export const TARGET_TIMEOUT_MS = 30000;
+export const TIMEOUT_RETRY_MS = 1500;
+export const ICON_RETRY_MS = 500;
 const TICK_MS = 2500;
 
-export const fetchRetry = async (io, url, options) => {
+const pause = (io, ms) => (io.sleep ? io.sleep(ms) : new Promise((r) => setTimeout(r, ms)));
+
+export const fetchRetry = async (io, url, options, hooks = {}) => {
   let last;
   for (let i = 0; i < 2; i++) {
     try {
       return await io.fetchBytes(url, options);
     } catch (e) {
       last = e;
-      if (e && (e.fatal || e.timeout)) throw e;
-      if (i < 1) await (io.sleep ? io.sleep(500) : new Promise((r) => setTimeout(r, 500)));
+      if (e && e.fatal) throw e;
+      if (i < 1) {
+        if (e && e.timeout) {
+          if (hooks.onTimeout) hooks.onTimeout(e);
+          await pause(io, hooks.timeoutDelayMs === undefined ? TIMEOUT_RETRY_MS : hooks.timeoutDelayMs);
+        } else await pause(io, 500);
+      }
     }
   }
   throw last;
@@ -81,6 +109,8 @@ const finishFrom = async (bytes, source, result) => {
   result.source = source;
 };
 
+export const STALE_SOURCE = 'stale-source';
+
 const useKnown = async (io, r) => {
   let hit;
   try {
@@ -94,6 +124,7 @@ const useKnown = async (io, r) => {
     await finishFrom(hit.bytes, source, r);
     r.status = 'found';
     r.error = null;
+    r.flags = [...(r.flags || []), STALE_SOURCE];
     r.attempts.push({ ...source, status: 'used', reason: 'live fetch failed, using the copy shipped with the app' });
   } catch (e) {
     r.attempts.push({ ...source, status: 'failed', reason: errText(e) });
@@ -101,7 +132,7 @@ const useKnown = async (io, r) => {
 };
 
 export const processTarget = async (t, ctx) => {
-  const { io, overrides = {}, local = false } = ctx;
+  const { io, overrides = {}, pins = {}, local = false } = ctx;
   const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
   if (!KEY_RE.test(t.key)) {
     result.error = 'key is not safe for a file name';
@@ -152,6 +183,23 @@ export const processTarget = async (t, ctx) => {
     result.error = errText(e);
     return result;
   }
+  const pin = pins[t.key];
+  if (pin && typeof pin.href === 'string' && pin.href) {
+    const at = { type: 'pinned', href: short(pin.href) };
+    const timeouts = [];
+    try {
+      const bytes = await loadHref(pin.href, { fetchBytes: (u) => fetchRetry(io, u, undefined, { timeoutDelayMs: ICON_RETRY_MS, onTimeout: (e) => timeouts.push(e) }) });
+      if (!bytes || !bytes.length) throw new Error('empty');
+      await finishFrom(bytes, at, result);
+      result.status = 'found';
+      result.attempts.push({ ...at, status: 'used', reason: 'pinned source' });
+      return result;
+    } catch (e) {
+      result.attempts.push({ ...at, status: 'failed', reason: 'pinned source failed: ' + errText(e) });
+      result.image = null;
+      result.source = null;
+    }
+  }
   if (!t.url) {
     result.error = 'no url';
     return result;
@@ -162,21 +210,33 @@ export const processTarget = async (t, ctx) => {
   let pageOk = false;
   let pageDown = false;
   let base = t.url;
+  const pageTimeouts = [];
+  const noteRetries = (list, at) => {
+    for (const e of list.splice(0)) result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
+  };
+  const pageAt = { type: 'page', href: short(t.url) };
   try {
-    const res = await fetchRetry(io, t.url, { head: true });
+    const res = await fetchRetry(io, t.url, { head: true }, { timeoutDelayMs: TIMEOUT_RETRY_MS, onTimeout: (e) => pageTimeouts.push(e) });
     base = res.url || t.url;
-    if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge') {
+    const retried = pageTimeouts.length > 0;
+    noteRetries(pageTimeouts, pageAt);
+    if (BLOCK_STATUS.has(res.status) || res.mitigated === 'challenge' || res.protection) {
+      const netlify = res.protection === PROTECTION_NETLIFY;
       result.status = 'blocked';
-      result.error = 'HTTP ' + res.status + ' challenge or protection page';
-      result.attempts.push({ type: 'page', href: short(t.url), status: 'blocked', reason: result.error });
+      result.protected = netlify;
+      result.error = netlify ? NETLIFY_PROTECTED_MESSAGE : 'HTTP ' + res.status + ' challenge or protection page';
+      result.attempts.push({ ...pageAt, status: 'blocked', reason: result.error });
       return result;
     }
+    if (retried) result.attempts.push({ ...pageAt, status: 'used', reason: 'retry after timeout' });
     html = text(res.bytes);
     pageOk = res.ok;
   } catch (e) {
     pageDown = true;
+    const retried = pageTimeouts.length > 0;
     errors.push('page: ' + errText(e));
-    result.attempts.push({ type: 'page', href: short(t.url), status: 'failed', reason: errText(e) });
+    noteRetries(pageTimeouts, pageAt);
+    result.attempts.push({ ...pageAt, status: 'failed', reason: retried ? 'retry after timeout: ' + errText(e) : errText(e) });
   }
   base = readBaseHref(html, base);
   const pageHost = hostOf(base);
@@ -190,57 +250,105 @@ export const processTarget = async (t, ctx) => {
   const fetchIo = { fetchBytes: (u) => fetchRetry(io, u), attempt: (a) => result.attempts.push(a) };
   let lastBad = null;
   const tried = new Set();
-  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk })) {
+  let held = null;
+  const accept = (found) => {
+    result.attempts.push({ ...found.at, status: 'used', reason: found.reason });
+    result.source = found.at;
+    result.image = found.img;
+    result.original = found.original;
+    result.status = 'found';
+    if (found.soft) result.flags = [...(result.flags || []), LOW_RES];
+    return result;
+  };
+  for (const group of candidateGroups(links, base, errors, fetchIo, readMetas(html), { probe: pageOk, forceWellKnown: () => !!held && held.soft })) {
     for (const c of await group()) {
       if (tried.has(c.href)) continue;
+      if (held && c.type !== held.wants) continue;
       tried.add(c.href);
       const at = { type: c.type, href: short(c.href) };
       if (pageDown && pageHost && hostOf(c.href) === pageHost) {
         result.attempts.push({ ...at, status: 'failed', reason: 'skipped, the site did not answer' });
         continue;
       }
+      const timeouts = [];
+      const candidateIo = { fetchBytes: (u) => fetchRetry(io, u, undefined, { timeoutDelayMs: ICON_RETRY_MS, onTimeout: (e) => timeouts.push(e) }) };
       try {
-        const bytes = await loadHref(c.href, fetchIo);
+        const bytes = await loadHref(c.href, candidateIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
         if (!ext) throw new Error('not an image');
         const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
         if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
+        const retried = timeouts.length > 0;
+        noteRetries(timeouts, at);
         if (bad) {
           lastBad = { bad, source: at };
           errors.push(c.type + ': ' + bad);
           result.attempts.push({ ...at, status: 'rejected', reason: bad });
           continue;
         }
-        result.attempts.push({ ...at, status: 'used', reason: null });
-        result.source = at;
-        result.image = img;
-        result.original = original;
-        result.status = 'found';
-        return result;
+        if (held && held.soft) {
+          if (srcWidth === null || srcWidth >= SOFT_ICO_PX) return accept({ at, img, original, reason: 'well-known path beats low-res ico' });
+          result.attempts.push({ ...at, status: 'rejected', reason: 'also low resolution' });
+          continue;
+        }
+        if (held) {
+          if (isRichSvg(img)) {
+            result.attempts.push({ ...held.at, status: 'rejected', reason: held.why });
+            return accept({ at, img, original, reason: 'preferred svg over jpeg touch icon' });
+          }
+          result.attempts.push({ ...at, status: 'rejected', reason: 'plain svg, kept the touch icon' });
+          continue;
+        }
+        const reason = retried ? 'retry after timeout' : null;
+        if (c.type === 'apple-touch-icon' && (ext === 'jpg' || highFrequencyShare(img) > PHOTO_SHARE) && hasSvgLink(links)) {
+          held = { at, img, original, reason, wants: 'svg', why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
+          continue;
+        }
+        if (ext === 'ico' && srcWidth !== null && srcWidth < SOFT_ICO_PX && (c.type === 'ico' || c.type === 'favicon.ico')) {
+          held = { at, img, original, reason, soft: true, wants: 'well-known' };
+          continue;
+        }
+        return accept({ at, img, original, reason });
       } catch (e) {
+        const retried = timeouts.length > 0;
+        noteRetries(timeouts, at);
         errors.push(c.type + ': ' + errText(e));
-        result.attempts.push({ ...at, status: 'failed', reason: errText(e) });
+        result.attempts.push({ ...at, status: 'failed', reason: retried ? 'retry after timeout: ' + errText(e) : errText(e) });
       }
     }
   }
+  if (held) return accept(held);
   if (lastBad) result.source = lastBad.source;
   result.error = errors.slice(-3).join('; ') || 'no icon found';
   return result;
 };
 
-export const analyzeIcon = async (img) => {
+const conformV4 = (tint) => (Array.isArray(tint) && isHex(tint[0]) ? tintV4(tint[0]) : tint);
+
+const glyphOptionsOf = (options = {}) => (options.target === 'v4' ? { size: GLYPH_V4_SIZE, content: GLYPH_V4_CONTENT, twoTone: true } : {});
+
+export const analyzeIcon = async (img, options = {}) => {
   const n = img.width * img.height;
   const lab = imageToLab(img.data, n);
-  return { gradient: extractGradient(img.data, lab, n), accent: extractAccent(img.data, lab, n), glyph: await extractGlyph(img.data, lab, img.width, img.height) };
+  const colour = extractColours(img.data, img.width, img.height);
+  const tint = colour ? tintFromHex(colour.accent) : null;
+  const strong = !!colour && colour.share >= STRONG_SHARE;
+  return { gradient: strong ? tint : null, accent: strong ? null : tint, colour, glyph: await extractGlyph(img.data, lab, img.width, img.height, glyphOptionsOf(options)) };
 };
+
+export const localCompute = { analyze: (image, options) => analyzeIcon(image, options), trace: (glyph, key, options) => traceGlyphAuto(glyph, key, options) };
 
 const baseName = (p) => p.split('/').pop().split('?')[0];
 
 const readSymbols = (svg) => {
   const out = new Map();
-  for (const m of svg.matchAll(/<symbol id="g-([a-z0-9-]+)"[^>]*><path d="([^"]*)"\/><\/symbol>/g)) out.set(m[1], m[2]);
+  for (const m of svg.matchAll(/<symbol id="g-([a-z0-9-]+)"[^>]*>(.*?)<\/symbol>/g)) {
+    const paths = [...m[2].matchAll(/<path([^>]*?) d="([^"]*)"\/>/g)].map((x) => ({ d: x[2], opacity: Number((/fill-opacity="([0-9.]+)"/.exec(x[1]) || [0, 1])[1]) }));
+    if (!paths.length) continue;
+    out.set(m[1], paths.length > 1 ? { d: paths[paths.length - 1].d, layers: paths } : { d: paths[0].d });
+  }
   return out;
 };
 
@@ -286,12 +394,14 @@ export const readPrevious = async (targets, io) => {
         for (const [k, v] of Object.entries(manifest.icons)) {
           if (!v || typeof v !== 'object') continue;
           if (!seed && v.seed) seed = v.seed;
-          const d = symbols.get(k);
+          const sym = symbols.get(k);
           prev.set(k, {
             image: favs.get(k) || null,
             glyphImage: glyphs.get(k) || null,
-            trace: d ? { accepted: true, d, bytes: 0, iou: 1, reason: null } : null,
+            trace: sym ? { accepted: true, d: sym.d, ...(sym.layers ? { layers: sym.layers } : {}), bytes: 0, iou: 1, reason: null } : null,
             tint: v.tint || null,
+            tintRole: v.tintRole || null,
+            v4: v.ink !== undefined && v.bbox ? { ink: v.ink, bbox: v.bbox, layers: v.layers || 1 } : null,
             sourceTint: v.sourceTint || null,
             locked: !!v.locked,
             palette: v.palette || null,
@@ -318,7 +428,7 @@ export const readPrevious = async (targets, io) => {
         if (png) image = (await decodeImage(png, 'png')).image;
         const gp = await tryRead(k + '.glyph.png');
         if (gp) glyphImage = (await decodeImage(gp, 'png')).image;
-        prev.set(k, { image, glyphImage, trace: null, tint: v.tint || null, sourceTint: v.sourceTint || null, locked: false, palette: null, seed: null, shape: 'default', status: v.status || 'found', hash: v.hash || null });
+        prev.set(k, { image, glyphImage, trace: null, tintRole: v.tintRole || null, v4: v.ink !== undefined && v.bbox ? { ink: v.ink, bbox: v.bbox, layers: v.layers || 1 } : null, tint: v.tint || null, sourceTint: v.sourceTint || null, locked: false, palette: null, seed: null, shape: 'default', status: v.status || 'found', hash: v.hash || null });
       }
     } catch {
       prev.clear();
@@ -333,6 +443,8 @@ export const runHarvest = async (input, options = {}, io) => {
   const now = options.now || new Date().toISOString();
   const targets = input.targets;
   const overrides = input.overrides || {};
+  const pins = input.pins || {};
+  const launcherIds = Array.isArray(input.launcherIds) ? input.launcherIds : null;
   const validKeys = new Set(targets.map((t) => t.key));
   const progress = options.onProgress || (() => {});
 
@@ -346,18 +458,21 @@ export const runHarvest = async (input, options = {}, io) => {
   const only = options.only ? new Set(options.only) : null;
   const limit = options.targetTimeoutMs === undefined ? (local ? 0 : TARGET_TIMEOUT_MS) : options.targetTimeoutMs;
   const inflight = new Set();
+  const limiter = local || options.limits === false ? null : createLimiter(options.limits || {});
+  const netIo = limiter ? { ...io, fetchBytes: (u, o) => limiter.run(u, () => io.fetchBytes(u, o)) } : io;
   const ticker = options.onProgress && !local ? setInterval(() => progress({ phase: 'fetch', done, total: targets.length, pending: [...inflight] }), options.tickMs || TICK_MS) : null;
   let results;
   try {
-    results = await pool(targets, options.concurrency || (local ? 8 : 6), async (t) => {
+    results = await pool(targets, options.concurrency || 8, async (t) => {
       if (only && !only.has(t.key)) {
         progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: 'skipped', pending: [...inflight] });
         return { key: t.key, url: t.url, status: 'skipped' };
       }
       inflight.add(t.key);
-      const run = processTarget(t, { io, overrides, local });
+      const run = processTarget(t, { io: netIo, overrides, pins, local });
       const r = limit ? await withDeadline(t, run, limit) : await run;
       inflight.delete(t.key);
+      if (options.onTarget) await options.onTarget(r);
       progress({ phase: 'fetch', done: ++done, total: targets.length, key: t.key, status: r.status, pending: [...inflight] });
       return r;
     });
@@ -373,20 +488,46 @@ export const runHarvest = async (input, options = {}, io) => {
     return rec;
   };
   const traceQueue = [];
+  const memoOut = new Map();
+  const compute = options.compute || localCompute;
+  const analyses = new Map();
+  const hashes = new Map();
+  const reuse = options.reuse || null;
+  const target = options.target === 'v4' ? 'v4' : 'v3';
+  const analysisOptions = target === 'v4' ? { target } : {};
+  const reused = new Set();
+  for (const r of results) {
+    if (!r.image) continue;
+    const hash = await pixelHash(r.image);
+    hashes.set(r.key, hash);
+    const memo = reuse && reuse.get(r.key);
+    if (memo && memo.hash === hash && (memo.target || 'v3') === target) {
+      reused.add(r.key);
+      analyses.set(r.key, Promise.resolve({ value: memo.analysis }));
+      continue;
+    }
+    analyses.set(
+      r.key,
+      compute.analyze(r.image, analysisOptions).then(
+        (value) => ({ value }),
+        (e) => ({ error: errText(e) })
+      )
+    );
+  }
   for (const r of results) {
     const prev = previous.prev.get(r.key) || null;
-    if (!local && !prev && io.readKnown && !r.image && !r.fa && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
+    if (!local && !prev && io.readKnown && !r.image && !r.fa && !r.protected && r.status !== 'override' && r.status !== 'skipped') await useKnown(io, r);
     const rec = recordOf(r);
     if (r.image) {
       rec.image = r.image;
       rec.original = r.original || null;
-      rec.hash = await pixelHash(r.image);
-      let analysis = { gradient: null, accent: null, glyph: null };
-      try {
-        analysis = await analyzeIcon(r.image);
-      } catch (e) {
-        r.analysisError = errText(e);
-      }
+      if (!hashes.has(r.key)) hashes.set(r.key, await pixelHash(r.image));
+      rec.hash = hashes.get(r.key);
+      let analysis = { gradient: null, accent: null, colour: null, glyph: null };
+      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image, analysisOptions).then((value) => ({ value }), (e) => ({ error: errText(e) })));
+      const analysed = await analyses.get(r.key);
+      if (analysed.error) r.analysisError = analysed.error;
+      else analysis = analysed.value;
       const catalogue = !analysis.gradient && !legacy ? targetOf.get(r.key).catalogueTint || null : null;
       const accent = !analysis.gradient && !catalogue && !legacy ? analysis.accent : null;
       rec.base = analysis.gradient || catalogue || accent;
@@ -394,10 +535,17 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.tint = analysis.gradient || catalogue || accent;
       if (catalogue) rec.tintSource = 'catalogue';
       else if (accent) rec.tintSource = 'accent';
+      if (target === 'v4') {
+        rec.tintRole = catalogue ? 'authored' : 'brand';
+        if (!catalogue && Array.isArray(rec.tint) && isHex(rec.tint[0])) rec.tint = tintV4(rec.tint[0]);
+      }
+      rec.colour = analysis.colour;
+      if (!analysed.error) memoOut.set(r.key, { hash: rec.hash, target, analysis, trace: null });
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
         rec.tint = prev.tint;
+        if (target === 'v4' && prev.tintRole) rec.tintRole = prev.tintRole;
         rec.locked = true;
         rec.palette = prev.palette;
         rec.shape = prev.shape || 'default';
@@ -409,6 +557,8 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.glyphImage = prev.glyphImage;
       rec.trace = prev.trace;
       rec.hash = prev.hash;
+      rec.tintRole = prev.tintRole;
+      rec.v4 = prev.v4;
       rec.tint = prev.tint;
       rec.sourceTint = prev.sourceTint;
       rec.locked = prev.locked;
@@ -433,12 +583,38 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   let traced = 0;
-  for (const rec of traceQueue) {
-    rec.trace = await traceGlyph(rec.glyphImage, rec.key);
-    progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
+  await Promise.all(
+    traceQueue.map(async (rec) => {
+      const memo = reused.has(rec.key) ? reuse.get(rec.key) : null;
+      rec.trace = memo && memo.trace ? memo.trace : await compute.trace(rec.glyphImage, rec.key);
+      rec.rawTrace = rec.trace;
+      progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
+    })
+  );
+
+  for (const rec of traceQueue) if (memoOut.has(rec.key)) memoOut.get(rec.key).trace = rec.rawTrace;
+  const strokeRetraced = [];
+  const widths = traceQueue.filter((r) => r.trace && r.trace.accepted && r.trace.stroke).map((r) => r.trace.stroke).sort((a, b) => a - b);
+  if (widths.length >= 5) {
+    const median = widths[Math.floor(widths.length / 2)];
+    const outliers = traceQueue.filter((rec) => {
+      if (!rec.trace || !rec.trace.accepted) return false;
+      const ratio = rec.trace.stroke / median;
+      return ratio > STROKE_OUTLIER || ratio < 1 / STROKE_OUTLIER;
+    });
+    const retries = await Promise.all(outliers.map((rec) => compute.trace(rec.glyphImage, rec.key, { bias: rec.trace.stroke / median > 1 ? STROKE_BIAS : -STROKE_BIAS })));
+    outliers.forEach((rec, i) => {
+      const retry = retries[i];
+      if (retry.accepted && Math.abs(Math.log(retry.stroke / median)) < Math.abs(Math.log(rec.trace.stroke / median))) {
+        rec.trace = { ...retry, retraced: true, strokeWas: rec.trace.stroke };
+        strokeRetraced.push(rec.key);
+      }
+    });
   }
 
   const appOf = new Map(targets.map((t) => [t.key, t.appId]));
+  const groupOf = new Map(targets.filter((t) => t.groupId).map((t) => [t.key, t.groupId]));
+  for (const rec of records) if (groupOf.has(rec.key)) rec.groupId = groupOf.get(rec.key);
   const entries = {};
   for (const rec of records) entries[rec.key] = rec;
   let adjusted = [];
@@ -448,25 +624,42 @@ export const runHarvest = async (input, options = {}, io) => {
     for (const rec of records) if (rec.tint) rec.sourceTint = rec.sourceTint || rec.tint;
     adjusted = separateTints(entries, appOf);
   } else {
-    const mode = options.mode || 'follow';
+    const mode = options.mode || DEFAULT_MODE;
     const unlocked = new Set(records.filter((r) => !r.locked && !r.kept && r.image && (mode === 'mono' || r.tint)).map((r) => r.key));
     for (const rec of records) if (rec.tint && !rec.sourceTint) rec.sourceTint = rec.tint;
-    const res = applyMode(entries, appOf, { mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked });
+    const res = applyMode(entries, appOf, { constrain: target === 'v4' ? conformV4 : null, mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked, groupOf });
     adjusted = res.adjusted;
     groups = res.groups;
     tight = res.tight;
+    for (const key of tight) if (entries[key]) entries[key].tight = true;
     for (const rec of records) {
       if (rec.tint && mode !== 'keep' && unlocked.has(rec.key)) rec.seed = seed;
     }
   }
   const contrast = legacy ? { nudged: [], flagged: [] } : guardContrast(entries);
+  const v4Report = { conformed: [], nonConforming: [] };
+  if (target === 'v4') {
+    for (const rec of records) {
+      if (!rec.tint || !rec.image || rec.kept) continue;
+      if (!rec.locked && v4Violations(rec.tint).length && isHex(rec.tint[0])) rec.tint = tintV4(rec.tint[0]);
+      const left = v4Violations(rec.tint);
+      if (left.length) v4Report.nonConforming.push({ key: rec.key, reason: rec.locked ? 'locked' : 'unconformable', violations: left });
+      const source = Array.isArray(rec.sourceTint) && rec.sourceTint.length === 3 ? rec.sourceTint : null;
+      if (!rec.locked && source && v4Violations(source).length) v4Report.conformed.push(rec.key);
+    }
+  }
 
   const probes = [];
   for (const rec of records) {
     if (!rec.image || rec.status === 'override') continue;
     let hash64 = null;
     try {
-      hash64 = await dHash(rec.glyphImage || rec.image, !!rec.glyphImage);
+      let hashed = rec.glyphImage || rec.image;
+      if (target === 'v4' && rec.glyphImage && rec.glyphImage.width === GLYPH_V4_SIZE) {
+        const edge = (GLYPH_V4_SIZE - GLYPH_V4_CONTENT) / 2;
+        hashed = cropImage(rec.glyphImage, edge, edge, GLYPH_V4_CONTENT, GLYPH_V4_CONTENT);
+      }
+      hash64 = await dHash(hashed, !!rec.glyphImage);
     } catch {
       hash64 = null;
     }
@@ -480,7 +673,11 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   const sorted = [...records].sort((a, b) => (a.key < b.key ? -1 : 1));
-  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed });
+  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now, target }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed, target });
+
+  const marked = new Set(sorted.filter((r) => r.image || r.fa).map((r) => r.key));
+  const unused = launcherIds ? [...marked].filter((k) => !launcherIds.includes(k)).sort() : [];
+  const missing = launcherIds ? launcherIds.filter((k) => !marked.has(k)).sort() : [];
 
   const count = (s) => results.filter((r) => (byKey.get(r.key) ? byKey.get(r.key).status : r.status) === s).length;
   const report = {
@@ -497,9 +694,13 @@ export const runHarvest = async (input, options = {}, io) => {
       notfound: results.filter((r) => !byKey.has(r.key) && r.status !== 'skipped').length,
       ...(only ? { skipped: results.filter((r) => r.status === 'skipped').length } : {})
     },
-    colour: { mode: legacy ? 'legacy' : options.mode || 'follow', seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
+    ...(target === 'v4' ? { target: 'v4', v4: v4Report } : {}),
+    colour: { mode: legacy ? 'legacy' : options.mode || DEFAULT_MODE, seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
     gate: options.preview ? null : { ok: exported.gate.ok, failures: exported.gate.failures },
+    unused,
+    missing,
+    polish: polishReport({ records: sorted, groupOf, strokeRetraced, contrastFlagged: contrast.flagged }),
     defaults: [...flagged.keys()],
     similarPalette: [...palette.keys()],
     adjusted,
@@ -514,17 +715,19 @@ export const runHarvest = async (input, options = {}, io) => {
         error: r.error,
         tint: rec ? rec.tint : null,
         glyph: rec ? (rec.trace && rec.trace.accepted ? 'symbol' : rec.glyphImage ? 'atlas' : null) : null,
-        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason } : null,
+        trace: rec && rec.trace ? { accepted: rec.trace.accepted, bytes: rec.trace.bytes, iou: Number((rec.trace.iou || 0).toFixed(3)), reason: rec.trace.reason, ...(rec.trace.stroke ? { stroke: Number(rec.trace.stroke.toFixed(2)) } : {}), ...(rec.trace.clean ? { clean: true } : {}), ...(rec.trace.retraced ? { retraced: true, strokeWas: Number(rec.trace.strokeWas.toFixed(2)) } : {}) } : null,
         why: why.get(r.key) || null,
+        ...(r.flags && r.flags.length ? { flags: r.flags } : {}),
         ...(r.attempts && r.attempts.length ? { attempts: r.attempts } : {}),
         ...(rec && rec.tintSource ? { tintSource: rec.tintSource } : {}),
+        ...(rec && rec.colour ? { accent: rec.colour.accent, gradient: rec.colour.gradient, ...(rec.colour.synthetic ? { gradientSynthetic: true } : {}) } : {}),
         ...(rec && rec.fa ? { fa: rec.fa } : {}),
         ...(targetOf.get(r.key).closed ? { closed: true } : {})
       };
     })
   };
   exported.files['harvest-report.json'] = new TextEncoder().encode(stableStringify(report));
-  return { records: sorted, results, report, export: exported, validKeys, entries: byKey };
+  return { records: sorted, results, report, export: exported, validKeys, entries: byKey, reusable: memoOut, reusedKeys: [...reused], limiter: limiter ? limiter.stats : null };
 };
 
 export { canonicalJson, EXT_BY_NAME, KEY_RE, buildTargets, extrasToTargets, mergeTargets };

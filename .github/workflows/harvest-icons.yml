@@ -1,0 +1,168 @@
+name: Harvest icons
+
+on:
+  workflow_call:
+    inputs:
+      set:
+        description: launcher or fihrist
+        type: string
+        required: true
+      links-path:
+        description: Path of the links JSON in the calling repository
+        type: string
+        required: true
+      icons-dir:
+        description: Directory the icons are written to
+        type: string
+        required: true
+      base-sha:
+        description: Commit before the change, empty for a full refresh
+        type: string
+        required: false
+        default: ''
+      head-sha:
+        description: Commit the links JSON is read from
+        type: string
+        required: true
+      target:
+        description: Launcher icon contract, v3 or v4
+        type: string
+        required: false
+        default: v3
+      studio-ref:
+        description: Tag of harvest-studio to run
+        type: string
+        required: false
+        default: v0.2.0
+    secrets:
+      token:
+        description: Optional token used to push and open the pull request, for example a GitHub App token
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: harvest-icons-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SET: ${{ inputs.set }}
+      LINKS: ${{ inputs.links-path }}
+      ICONS: ${{ inputs.icons-dir }}
+      BASE: ${{ inputs.base-sha }}
+      HEAD: ${{ inputs.head-sha }}
+      TARGET: ${{ inputs.target }}
+      GH_TOKEN: ${{ secrets.token || github.token }}
+    steps:
+      - name: Check out the calling repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.head-sha }}
+          token: ${{ secrets.token || github.token }}
+
+      - name: Check out Harvest Studio
+        uses: actions/checkout@v4
+        with:
+          repository: datakid/harvest-studio
+          ref: ${{ inputs.studio-ref }}
+          path: harvest-studio
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Harvest Studio
+        working-directory: harvest-studio
+        run: npm ci --omit=dev
+
+      - name: Work out which icons changed
+        id: diff
+        run: |
+          node harvest-studio/cli/diff-links.mjs --base "$BASE" --head "$HEAD" --links "$LINKS" --set "$SET" > diff.json
+          cat diff.json
+          relevant=$(node -e 'const d=JSON.parse(require("fs").readFileSync("diff.json","utf8"));console.log(d.full||d.added.length+d.changed.length+d.removed.length>0)')
+          echo "relevant=$relevant" >> "$GITHUB_OUTPUT"
+          echo "full=$(node -e 'console.log(JSON.parse(require("fs").readFileSync("diff.json","utf8")).full)')" >> "$GITHUB_OUTPUT"
+          echo "only=$(node -e 'const d=JSON.parse(require("fs").readFileSync("diff.json","utf8"));console.log(d.only.length?d.only.join(","):"none")')" >> "$GITHUB_OUTPUT"
+          if [ "$relevant" != "true" ]; then echo "no icon-relevant changes"; fi
+
+      - name: Read the manifest hash before
+        if: steps.diff.outputs.relevant == 'true'
+        id: before
+        run: echo "hash=$(node harvest-studio/cli/workflow.mjs hash --dir "$ICONS")" >> "$GITHUB_OUTPUT"
+
+      - name: Harvest
+        if: steps.diff.outputs.relevant == 'true'
+        env:
+          ONLY: ${{ steps.diff.outputs.only }}
+          FULL: ${{ steps.diff.outputs.full }}
+        run: |
+          mkdir -p "$ICONS"
+          if [ "$FULL" = "true" ]; then
+            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS" --target "$TARGET"
+          else
+            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS" --only "$ONLY" --target "$TARGET"
+          fi
+
+      - name: Upload the report
+        if: always() && steps.diff.outputs.relevant == 'true'
+        id: report
+        uses: actions/upload-artifact@v4
+        with:
+          name: harvest-report
+          path: ${{ inputs.icons-dir }}/harvest-report.json
+          if-no-files-found: ignore
+
+      - name: Decide whether a pull request is needed
+        if: steps.diff.outputs.relevant == 'true'
+        id: decide
+        env:
+          BEFORE: ${{ steps.before.outputs.hash }}
+        run: |
+          after=$(node harvest-studio/cli/workflow.mjs hash --dir "$ICONS")
+          open=$(node harvest-studio/cli/workflow.mjs should-open --before "$BEFORE" --after "$after")
+          echo "open=$open" >> "$GITHUB_OUTPUT"
+          if [ "$open" != "true" ]; then echo "manifest unchanged, no commit and no pull request"; fi
+
+      - name: Build the pull request text
+        if: steps.decide.outputs.open == 'true'
+        env:
+          ARTIFACT_URL: ${{ steps.report.outputs.artifact-url }}
+        run: node harvest-studio/cli/workflow.mjs body --set "$SET" --diff diff.json --report "$ICONS/harvest-report.json" --artifact-url "$ARTIFACT_URL" --out pr-body.md
+
+      - name: Commit to beta/icons and open or update the pull request
+        if: steps.decide.outputs.open == 'true'
+        env:
+          BRANCH: beta/icons
+        run: |
+          tar -C "$ICONS" -cf "$RUNNER_TEMP/icons.tar" .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          default=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+          git fetch origin "$default"
+          git fetch origin "$BRANCH" || true
+          git checkout -q -B "$BRANCH" "origin/$default"
+          rm -rf "$ICONS"
+          mkdir -p "$ICONS"
+          tar -C "$ICONS" -xf "$RUNNER_TEMP/icons.tar"
+          git add -A "$ICONS"
+          if git diff --cached --quiet; then
+            echo "icons already match $default"
+            exit 0
+          fi
+          git commit -q -m "icons: re-harvest the $SET set"
+          git push --force-with-lease origin "$BRANCH"
+          number=$(gh pr list --head "$BRANCH" --base "$default" --state open --json number -q '.[0].number')
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --body-file pr-body.md
+          else
+            gh pr create --base "$default" --head "$BRANCH" --title "Icons: re-harvest the $SET set" --body-file pr-body.md
+          fi

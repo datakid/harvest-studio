@@ -1,5 +1,5 @@
 import { applyMode, guardContrast } from '../core/tints.js';
-import { tintFromHex, passesContrast, launcherTile, hexToLch, oklchHex } from '../core/color.js';
+import { tintFromHex, tintV4, v4Violations, passesContrast, launcherTile, hexToLch, oklchHex } from '../core/color.js';
 
 export const randomSeed = () => {
   const a = new Uint32Array(1);
@@ -7,7 +7,9 @@ export const randomSeed = () => {
   return a[0].toString(16).padStart(8, '0');
 };
 
-export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary, only = null }) => {
+const conformV4 = (tint) => (Array.isArray(tint) && /^#[0-9a-f]{6}$/i.test(tint[0]) ? tintV4(tint[0]) : tint);
+
+export const recolour = (records, { mode, seed, monoColor, monoVary, spread, paletteColors, paletteVary, only = null, target = 'v3' }) => {
   const list = [...records.values()].filter((r) => r.hasImage);
   const appOf = new Map(list.map((r) => [r.key, r.appId]));
   const groupOf = new Map(list.filter((r) => r.groupId).map((r) => [r.key, r.groupId]));
@@ -20,9 +22,15 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread, pal
   const separate = mode === 'separate';
   const pool = separate ? { ...entries, ...lockedEntries } : entries;
   const keys = separate ? new Set(Object.keys(entries)) : undefined;
-  const res = applyMode(pool, appOf, { mode, seed, color: monoColor, vary: mode === 'palette' ? paletteVary : monoVary, colors: paletteColors, spread, keys, groupOf });
+  const res = applyMode(pool, appOf, { mode, seed, color: monoColor, vary: mode === 'palette' ? paletteVary : monoVary, colors: paletteColors, spread, keys, groupOf, constrain: target === 'v4' ? conformV4 : null });
   const all = { ...entries, ...lockedEntries };
   guardContrast(all);
+  if (target === 'v4') {
+    for (const r of list) {
+      const e = all[r.key];
+      if (!r.locked && e.tint && v4Violations(e.tint).length) e.tint = conformV4(e.tint);
+    }
+  }
   const tight = new Set(res.tight || []);
   const grouped = new Set((res.groups || []).flat());
   for (const r of list) {
@@ -37,8 +45,8 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread, pal
   return res;
 };
 
-export const setManualColour = (rec, hex) => {
-  rec.tint = tintFromHex(hex);
+export const setManualColour = (rec, hex, target = 'v3') => {
+  rec.tint = target === 'v4' ? tintV4(hex) : tintFromHex(hex);
   rec.locked = true;
   rec.contrast = passesContrast(rec.tint) ? null : 'flagged';
 };

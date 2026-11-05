@@ -45,6 +45,7 @@ const state = {
   fihrist: null,
   selected: null,
   seed: DEFAULT_SEED,
+  target: 'v3',
   progress: null,
   error: null,
   bloom: false,
@@ -109,7 +110,7 @@ const decodeRecord = (r, item) => {
   const rec = { ...r, hasImage: !!r.favicon, name: (item && item.name) || r.key };
   rec.raw = { favicon: r.favicon || null, glyph: r.glyph || null };
   if (r.favicon) rec.faviconUrl = URL.createObjectURL(new Blob([r.favicon], { type: 'image/png' }));
-  if (r.trace && r.trace.accepted) rec.mask = 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="black" d="' + r.trace.d + '"/></svg>') + '")';
+  if (r.trace && r.trace.accepted) rec.mask = 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' + (r.trace.layers && r.trace.layers.length > 1 ? r.trace.layers.map((l) => '<path fill="black"' + (l.opacity < 1 ? ' fill-opacity="' + l.opacity + '"' : '') + ' d="' + l.d + '"/>').join('') : '<path fill="black" d="' + r.trace.d + '"/>') + '</svg>') + '")';
   else if (r.glyph) rec.mask = 'url(' + URL.createObjectURL(new Blob([r.glyph], { type: 'image/png' })) + ')';
   delete rec.favicon;
   delete rec.glyph;
@@ -117,7 +118,7 @@ const decodeRecord = (r, item) => {
 };
 
 const applyColours = (only = null) => {
-  const res = recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary, only });
+  const res = recolour(state.records, { mode: prefs.mode, seed: state.seed, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary, only, target: state.target });
   scheduleSave();
   return res;
 };
@@ -128,6 +129,7 @@ const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, ba
 
 const snapshot = () => ({
   seed: state.seed,
+  target: state.target,
   cell: state.cell,
   pins: state.pins,
   polish: state.polish || null,
@@ -350,6 +352,7 @@ const openManifest = async () => {
     const result = await client.call('importManifest', { manifest: b.manifest.data, files });
     state.seed = result.seed || DEFAULT_SEED;
     state.cell = result.cell;
+    state.target = result.v4 ? 'v4' : 'v3';
     prefs.mode = 'follow';
     save();
     adopt(result, (k) => k);
@@ -406,7 +409,8 @@ const startHarvest = async () => {
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
     state.seed = state.seed || DEFAULT_SEED;
-    const result = await client.call('harvest', { targets, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
+    state.target = prefs.target === 'v4' ? 'v4' : 'v3';
+    const result = await client.call('harvest', { targets, target: state.target, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
       onProgress: (p) => {
         if (p.phase === 'tile') {
           streamTile(p);
@@ -524,6 +528,7 @@ const openProject = async (meta) => {
     prefs.paletteColors = cleanPalette(prefs.paletteColors).length ? cleanPalette(prefs.paletteColors) : ['#f0475c'];
     save();
     state.seed = payload.seed || DEFAULT_SEED;
+    state.target = payload.target === 'v4' ? 'v4' : 'v3';
     state.polish = payload.polish || null;
     state.cell = payload.cell || null;
     state.pins = payload.pins && typeof payload.pins === 'object' ? payload.pins : {};
@@ -542,6 +547,15 @@ const openProject = async (meta) => {
     renderMain();
   }
 };
+
+const targetPanel = () =>
+  h(
+    'div',
+    { class: 'target-pick', id: 'target-pick' },
+    h('span', null, t('targetTitle')),
+    seg(t('targetTitle'), [['v3', t('targetV3')], ['v4', t('targetV4')]], prefs.target, (v) => { prefs.target = v; save(); renderMain(); }),
+    h('p', { class: 'hint-text' }, prefs.target === 'v4' ? t('targetV4Hint') : t('targetV3Hint'))
+  );
 
 const renderIntake = () => {
   const urlText = state.pending.urlText;
@@ -602,6 +616,7 @@ const renderIntake = () => {
         drop,
         pendingChips(),
         manifestPanel(),
+        targetPanel(),
         state.pending.jsons.map(scanPanel),
         state.pending.jsons.some((j) => j.scan.kind === 'launcher') ? h('label', { class: 'check', id: 'fa-fallback' }, h('input', { type: 'checkbox', checked: prefs.faFallback, onChange: (e) => { prefs.faFallback = e.target.checked; save(); } }), t('faFallback')) : null,
         state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null,
@@ -854,7 +869,7 @@ const runAdd = async (targets, updating) => {
   const names = new Map(targets.map((x) => [x.key, x.name || x.key]));
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    const result = await client.call('add', { targets, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
+    const result = await client.call('add', { targets, target: state.target, seed: state.seed, mode: prefs.mode, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins }, {
       onProgress: (p) => {
         if (p.phase !== 'tile') return;
         const rec = state.records.get(p.key);
@@ -1342,7 +1357,7 @@ const selectedPanel = () => {
       h(
         'div',
         { class: 'colour-row' },
-        h('label', { class: 'picker', style: { background: pickHex } }, h('span', { class: 'sr' }, t('pickColour')), h('input', { type: 'color', value: pickHex, onInput: (e) => { setManualColour(rec, e.target.value); e.target.parentElement.style.background = e.target.value; refreshTilesOnly(); } , onChange: () => renderInspector() })),
+        h('label', { class: 'picker', style: { background: pickHex } }, h('span', { class: 'sr' }, t('pickColour')), h('input', { type: 'color', value: pickHex, onInput: (e) => { setManualColour(rec, e.target.value, state.target); e.target.parentElement.style.background = e.target.value; refreshTilesOnly(); } , onChange: () => renderInspector() })),
         trioEl(rec),
         rec.locked ? h('span', { class: 'pill ok' }, t('locked')) : null
       ),
@@ -1442,7 +1457,7 @@ const reharvest = async (rec, doneKey) => {
   if (!item.url) return;
   try {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    const result = await client.call('harvest', { reset: false, fresh: true, targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
+    const result = await client.call('harvest', { reset: false, fresh: true, targets: [{ key: rec.key, appId: rec.appId, url: item.url, name: rec.name }], target: state.target, seed: state.seed, cell: state.cell || undefined, faFallback: prefs.faFallback, pins: state.pins });
     const next = result.items[0];
     const payload = result.records.find((r) => r.key === rec.key);
     if (!payload || !next || (next.flags || []).includes('stale-source')) {
@@ -1466,7 +1481,7 @@ const replaceImage = async (rec, file) => {
   if (!file) return;
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const payload = await client.call('replace', { key: rec.key, appId: rec.appId, bytes, fileName: file.name });
+    const payload = await client.call('replace', { target: state.target, key: rec.key, appId: rec.appId, bytes, fileName: file.name });
     const fresh = decodeRecord(payload, { name: rec.name });
     fresh.name = rec.name;
     state.records.set(rec.key, fresh);
@@ -1509,11 +1524,12 @@ const openExport = () => {
 
   const run = async (type, payload) => {
     await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
-    return client.call('build', { patches: patches(), seed: state.seed, cell: state.cell || undefined, ...payload, kind: type });
+    return client.call('build', { patches: patches(), target: state.target, seed: state.seed, cell: state.cell || undefined, ...payload, kind: type });
   };
 
   const renderLauncher = async (area) => {
-    area.append(h('p', { class: 'hint-text' }, t('launcherIntro')), h('p', { class: 'progress-text' }, t('building')));
+    const formatNotes = () => [h('p', { class: 'hint-text', id: 'exp-format' }, state.target === 'v4' ? t('exportV4') : t('exportV3')), prefs.target !== state.target ? h('p', { class: 'hint-text', id: 'exp-mismatch' }, t('targetMismatch', { from: state.target, to: prefs.target })) : null];
+    area.append(h('p', { class: 'hint-text' }, t('launcherIntro')), ...formatNotes(), h('p', { class: 'progress-text' }, t('building')));
     try {
       if (state.dirty || !launcherBuild) {
         launcherBuild = await run('launcher', {});
@@ -1521,13 +1537,14 @@ const openExport = () => {
       }
       const b = launcherBuild;
       clear(area);
+      area.append(...formatNotes());
       const items = [];
       const stat = b.stats;
       const line = (ok, label, value) => h('li', null, h('span', { class: 'ic ' + (ok ? 'ok' : 'bad') }, icon(ok ? 'check' : 'close', { stroke: 2.6 })), label, h('small', null, value));
       const fails = new Set(b.gate.failures.map((f) => f.code));
       items.push(line(!fails.has('atlas-size'), 'atlas.webp (' + (stat.atlasMode || '-') + ')', stat.atlasBytes.toLocaleString() + ' / 153,600 B'));
       items.push(line(!fails.has('sprite-gzip'), 'glyphs.svg gzip', stat.spriteGzip.toLocaleString() + ' / 40,960 B'));
-      items.push(line(!fails.has('symbol-size'), t('gateGlyphs', { n: stat.symbols }), stat.rejectedGlyphs ? t('gateImageOnly', { n: stat.rejectedGlyphs }) : '≤ 1,536 B'));
+      items.push(line(!fails.has('symbol-size'), t('gateGlyphs', { n: stat.symbols }), stat.rejectedGlyphs ? t('gateImageOnly', { n: stat.rejectedGlyphs }) : state.target === 'v4' ? '≤ 1,536 B (' + t('twoTone') + ' ≤ 2,560 B)' : '≤ 1,536 B'));
       items.push(line(!fails.has('contrast'), t('gateContrast'), b.gate.failures.filter((f) => f.code === 'contrast').length ? t('gateLow', { n: b.gate.failures.filter((f) => f.code === 'contrast').length }) : '3:1'));
       area.append(
         h('p', { class: 'hint-text' }, t('launcherIntro')),

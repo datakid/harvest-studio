@@ -3,9 +3,10 @@ import {
   runHarvest,
   processTarget,
   analyzeIcon,
+  traceGlyphAuto,
+  tintV4,
   readPrevious,
   decodeImage,
-  traceGlyph,
   pixelHash,
   encodePng,
   buildLauncherExport,
@@ -153,7 +154,7 @@ const serialise = async (rec) => {
     contrast: rec.contrast || null,
     colour: rec.colour ? { share: rec.colour.share } : null,
     hash: rec.hash || null,
-    trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
+    trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, ...(rec.trace.layers ? { layers: rec.trace.layers } : {}), bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
     favicon,
     glyph
   };
@@ -194,6 +195,7 @@ const runBatch = async (p, post) => {
       profile: 'launcher',
       seed: p.seed,
       mode: p.mode === 'separate' ? 'separate' : 'keep',
+      target: p.target === 'v4' ? 'v4' : 'v3',
       preview: true,
       faFallback: !!p.faFallback,
       cell: p.cell || DEFAULT_CELL,
@@ -288,7 +290,7 @@ const handlers = {
       if (r.favicon) transfer.push(r.favicon.buffer);
       if (r.glyph) transfer.push(r.glyph.buffer);
     }
-    return { value: { records: out, items, seed: seed || null, cell: cell || DEFAULT_CELL }, transfer };
+    return { value: { records: out, items, seed: seed || null, cell: cell || DEFAULT_CELL, v4: [...prev.values()].some((v) => v.v4) }, transfer };
   },
 
   async restore(p) {
@@ -303,8 +305,10 @@ const handlers = {
     const target = { key, appId, bytes, fileName };
     const r = await processTarget(target, { io: makeIo(), overrides: {}, local: false });
     if (!r.image) throw new Error(r.error || 'not a usable image');
-    const analysis = await analyzeIcon(r.image);
-    const tint = analysis.gradient || analysis.accent;
+    const launcherTarget = p.target === 'v4' ? 'v4' : 'v3';
+    const analysis = await analyzeIcon(r.image, { target: launcherTarget });
+    const found = analysis.gradient || analysis.accent;
+    const tint = launcherTarget === 'v4' && Array.isArray(found) ? tintV4(found[0]) : found;
     const prev = records.get(key) || { key, appId };
     const rec = {
       ...prev,
@@ -317,8 +321,9 @@ const handlers = {
       base: tint,
       sourceTint: tint,
       tint,
+      tintRole: 'brand',
       glyphImage: analysis.glyph,
-      trace: analysis.glyph ? await traceGlyph(analysis.glyph, key) : null,
+      trace: analysis.glyph ? await traceGlyphAuto(analysis.glyph, key) : null,
       locked: false
     };
     records.set(key, rec);
@@ -334,7 +339,7 @@ const handlers = {
     const sorted = patched.sort((a, b) => (a.key < b.key ? -1 : 1));
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
-      const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed });
+      const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed, target: p.target === 'v4' ? 'v4' : 'v3' });
       if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, atlas: { cell: lastReport.atlas.cell, cellDefaulted: lastReport.atlas.cellDefaulted, ...exp.stats }, gate: { ok: exp.gate.ok, failures: exp.gate.failures }, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
       const zip = zipFiles(exp.files, 'icons/');
       return { value: { gate: exp.gate, stats: exp.stats, zip, files: Object.keys(exp.files) }, transfer: [zip.buffer] };

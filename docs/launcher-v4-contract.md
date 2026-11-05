@@ -9,7 +9,7 @@ node cli/harvest.mjs --profile legacy-v1 --links links.json --out icons --target
 node cli/harvest.mjs --profile launcher --links links.json --out icons --target v4
 ```
 
-The reusable workflow takes `target: v4` as an input. The first v4 run must be a full harvest, because kept icons from a v3 run keep their old 96 px glyphs.
+The web app uses the "Launcher icon format" switch on the start screen. The reusable workflow takes `target: v4` as an input. The first v4 run must be a full harvest, because kept icons from a v3 run keep their old 96 px glyphs.
 
 ## What a v4 run changes
 
@@ -45,4 +45,4 @@ Run through the launcher's own `tools/icons-v2.mjs`, the v4 legacy-v1 output bui
 - `tools/icons-v2.mjs` copies only `sourceTint` today. It must also copy `ink`, `bbox`, `layers` and `tintRole` from the v1 manifest.
 - The launcher schema needs the same four optional fields, validated by ajv in `qa:icons`.
 - After merging an icons PR from Studio, run `npm run build` so the committed `dist/` matches.
-- Studio's web UI still harvests with the v3 contract. v4 is available from the CLI and the workflow.
+- The web app has the same choice on its start screen, "Launcher icon format": Current (v3) or New look (v4). The choice is fixed when a set is harvested and saved with the project, so a set never mixes formats. To change format, start over and harvest again; the export dialog says which format the set was harvested as.

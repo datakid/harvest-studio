@@ -246,16 +246,17 @@ const rankedFor = (memo, key, base, seed) => {
   return hit;
 };
 
-const candidateTint = (hit, base, i) => {
+const candidateTint = (hit, base, i, constrain = null) => {
   if (hit.evaluated.has(i)) return hit.evaluated.get(i);
   const c = separateCandidates[i];
-  const t = shiftTint(base, c.dh, c.dl, c.dcMul);
+  const shifted = shiftTint(base, c.dh, c.dl, c.dcMul);
+  const t = constrain ? constrain(shifted) : shifted;
   const out = passesContrast(t) && withinRange(base, t) ? { tint: t, lab: hexToLab(t[0]), lch: hexToLch(t[0]) } : null;
   hit.evaluated.set(i, out);
   return out;
 };
 
-const placeTint = (key, base, placed, seed, memo = new Map()) => {
+const placeTint = (key, base, placed, seed, memo = new Map(), constrain = null) => {
   const baseLab = hexToLab(base[0]);
   const baseLch = hexToLch(base[0]);
   const own = crowding(baseLab, baseLch, placed);
@@ -267,7 +268,7 @@ const placeTint = (key, base, placed, seed, memo = new Map()) => {
   let best = null;
   let bestSep = -1;
   for (const i of hit.order) {
-    const c = candidateTint(hit, base, i);
+    const c = candidateTint(hit, base, i, constrain);
     if (!c) continue;
     const x = crowding(c.lab, c.lch, placed);
     if (x.sep >= SEPARATE_DELTA && x.gap >= SEPARATE_HUE_GAP) {
@@ -288,7 +289,7 @@ const placeTint = (key, base, placed, seed, memo = new Map()) => {
 
 export const SEPARATE_ROUNDS = 4;
 
-export const separateGroupTints = (entries, appOf, { seed = DEFAULT_SEED, keys = null, groupOf = new Map() } = {}) => {
+export const separateGroupTints = (entries, appOf, { seed = DEFAULT_SEED, keys = null, groupOf = new Map(), constrain = null } = {}) => {
   const adjusted = new Set();
   const tight = new Set();
   const byGroup = new Map();
@@ -315,8 +316,9 @@ export const separateGroupTints = (entries, appOf, { seed = DEFAULT_SEED, keys =
       .map((m) => m.key);
     const current = new Map();
     const place = (key, others) => {
-      const base = baseOf(entries[key]);
-      const r = placeTint(key, base, others, seed, memo);
+      const raw = baseOf(entries[key]);
+      const base = constrain ? constrain(raw) : raw;
+      const r = placeTint(key, base, others, seed, memo, constrain);
       current.set(key, { key, tint: r.tint, lab: hexToLab(r.tint[0]), lch: hexToLch(r.tint[0]) });
       if (r.tight) tight.add(key);
       else tight.delete(key);
@@ -339,11 +341,12 @@ export const separateGroupTints = (entries, appOf, { seed = DEFAULT_SEED, keys =
       const e = entries[key];
       const base = baseOf(e);
       const chosen = current.get(key).tint;
+      const start = constrain ? constrain(base) : base;
       e.tint = chosen;
       if (chosen.join() === base.join()) delete e.sourceTint;
       else {
         e.sourceTint = base;
-        adjusted.add(key);
+        if (chosen.join() !== start.join()) adjusted.add(key);
       }
     }
   }

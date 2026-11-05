@@ -336,3 +336,56 @@ export const nudgeForContrast = (tint) => {
   }
   return { tint, status: 'flagged', steps: 0 };
 };
+
+export const V4_RULES = Object.freeze({
+  baseL: [0.56, 0.66],
+  baseC: [0.09, 0.16],
+  lightLift: [0.12, 0.16],
+  lightTurn: [-14, -8],
+  deepDrop: [-0.24, -0.18],
+  deepTurn: [10, 16],
+  yellow: [70, 115],
+  yellowChroma: 0.11,
+  whiteContrast: 3
+});
+
+const hueTurn = (from, to) => {
+  let d = (((to - from) * 180) / Math.PI) % 360;
+  if (d > 180) d -= 360;
+  if (d < -180) d += 360;
+  return d;
+};
+
+const degrees = (rad) => (((rad * 180) / Math.PI) % 360 + 360) % 360;
+
+export const tintV4 = (hex) => {
+  const [, C, h] = hexToLch(hex);
+  const yellow = degrees(h) >= V4_RULES.yellow[0] && degrees(h) <= V4_RULES.yellow[1];
+  const c = clamp(yellow ? Math.max(C, V4_RULES.yellowChroma) : C, V4_RULES.baseC[0], V4_RULES.baseC[1]);
+  const hue = yellow ? h - (10 * Math.PI) / 180 : h;
+  let L = clamp(hexToLch(hex)[0], V4_RULES.baseL[0], V4_RULES.baseL[1]);
+  while (L > V4_RULES.baseL[0] && contrastRatio('#ffffff', oklchHex(L, c, hue)) < 3.15) L = Math.round((L - 0.005) * 1000) / 1000;
+  const rad = (d) => (d * Math.PI) / 180;
+  return [oklchHex(L, c, hue), oklchHex(L + 0.14, Math.min(c * 0.75, 0.11), hue + rad(-11)), oklchHex(L - 0.21, Math.min(c, 0.12), hue + rad(13))];
+};
+
+export const v4Violations = (tint, { tolerance = 0.012 } = {}) => {
+  if (!Array.isArray(tint) || tint.length !== 3) return ['tint is not three stops'];
+  const [base, light, deep] = tint.map(hexToLch);
+  const out = [];
+  const t = tolerance;
+  if (base[0] < V4_RULES.baseL[0] - t || base[0] > V4_RULES.baseL[1] + t) out.push('base lightness ' + base[0].toFixed(3));
+  if (base[1] < V4_RULES.baseC[0] - t || base[1] > V4_RULES.baseC[1] + t) out.push('base chroma ' + base[1].toFixed(3));
+  const lift = light[0] - base[0];
+  if (lift < V4_RULES.lightLift[0] - t || lift > V4_RULES.lightLift[1] + t) out.push('light lift ' + lift.toFixed(3));
+  const drop = deep[0] - base[0];
+  if (drop < V4_RULES.deepDrop[0] - t || drop > V4_RULES.deepDrop[1] + t) out.push('deep drop ' + drop.toFixed(3));
+  const lightTurn = hueTurn(base[2], light[2]);
+  const deepTurn = hueTurn(base[2], deep[2]);
+  if (lightTurn < V4_RULES.lightTurn[0] - 3 || lightTurn > V4_RULES.lightTurn[1] + 3) out.push('light hue turn ' + lightTurn.toFixed(1));
+  if (deepTurn < V4_RULES.deepTurn[0] - 3 || deepTurn > V4_RULES.deepTurn[1] + 3) out.push('deep hue turn ' + deepTurn.toFixed(1));
+  const bd = degrees(base[2]);
+  if (bd >= V4_RULES.yellow[0] && bd <= V4_RULES.yellow[1] && base[1] < V4_RULES.yellowChroma - t) out.push('yellow chroma ' + base[1].toFixed(3));
+  if (contrastRatio('#ffffff', tint[0]) < V4_RULES.whiteContrast) out.push('white contrast ' + contrastRatio('#ffffff', tint[0]).toFixed(2));
+  return out;
+};

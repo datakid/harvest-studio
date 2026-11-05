@@ -1,5 +1,5 @@
 import { roundCorners } from './pixels.js';
-import { alphaBounds, alphaCentroid, GLYPH_SIZE, SAFE_TARGET, SAFE_TOLERANCE, CENTRE_TOLERANCE } from './glyph.js';
+import { alphaBounds, alphaCentroid, safeTargetOf, GLYPH_V4_SIZE, GLYPH_V4_CONTENT, SAFE_TOLERANCE, CENTRE_TOLERANCE } from './glyph.js';
 import { similarPairs } from './tints.js';
 
 const ratio = (n, d) => (d ? Math.round((n / d) * 1000) / 1000 : 1);
@@ -7,10 +7,16 @@ const ratio = (n, d) => (d ? Math.round((n / d) * 1000) / 1000 : 1);
 export const glyphInSafeArea = (glyph) => {
   const b = alphaBounds(glyph);
   if (!b) return false;
-  const fill = Math.max(b.width, b.height) / GLYPH_SIZE;
+  const size = glyph.width;
+  const fill = Math.max(b.width, b.height) / size;
+  if (size === GLYPH_V4_SIZE) {
+    const edge = (size - GLYPH_V4_CONTENT) / 2 - 1;
+    const inside = b.x >= edge && b.y >= edge && b.x + b.width <= size - edge && b.y + b.height <= size - edge;
+    return inside && Math.abs(fill - safeTargetOf(size)) <= SAFE_TOLERANCE;
+  }
   const [cx, cy] = alphaCentroid(glyph);
-  const off = Math.max(Math.abs(cx - GLYPH_SIZE / 2), Math.abs(cy - GLYPH_SIZE / 2)) / GLYPH_SIZE;
-  return Math.abs(fill - SAFE_TARGET) <= SAFE_TOLERANCE && off <= CENTRE_TOLERANCE;
+  const off = Math.max(Math.abs(cx - size / 2), Math.abs(cy - size / 2)) / size;
+  return Math.abs(fill - safeTargetOf(size)) <= SAFE_TOLERANCE && off <= CENTRE_TOLERANCE;
 };
 
 export const cornersRounded = (img) => {

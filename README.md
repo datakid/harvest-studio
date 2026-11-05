@@ -27,7 +27,7 @@ node path/to/harvest-studio/cli/harvest.mjs --profile launcher
 
 The CLI works relative to the folder you run it in: it reads `./links.json` and writes `./icons/` unless you pass `--links` and `--out`.
 
-Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--set launcher|fihrist` (what kind of file `--links` is, default `launcher`), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`, `--only <key>[,<key>...]` (`--only none` keeps every key and only rebuilds the manifest, which prunes removed keys), `--workers <n>` (run analysis and tracing in worker threads; off by default, because it is slower on machines with few cores).
+Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--set launcher|fihrist` (what kind of file `--links` is, default `launcher`), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`, `--only <key>[,<key>...]` (`--only none` keeps every key and only rebuilds the manifest, which prunes removed keys), `--workers <n>` (run analysis and tracing in worker threads; off by default, because it is slower on machines with few cores), `--target v3|v4` (`v4` writes the launcher v4 icon contract: 192 px glyphs in a 124 px box, two-tone layers, OKLCH tint rules and the `ink`, `bbox`, `layers`, `tintRole` fields; see `docs/launcher-v4-contract.md`).
 
 - Exit 0 on success, even when some keys are `stale`. Exit 1 when the budget gate blocks the export or `links.json` is invalid.
 - Without `--seed` the CLI reuses the seed from the existing `manifest.v2.json`, or `1f2e3d4c`.
@@ -165,7 +165,7 @@ Push this folder as its own repository and import it in Vercel with the default 
 - `src/`: the app (vanilla JS, built with esbuild), `worker.js` runs the codecs
 - `cli/`: the harvest entry point, `diff-links.mjs` and the workflow helpers
 - `.github/workflows/`: the reusable icon workflow
-- `docs/`: the baseline numbers, the Netlify note, caller workflows and screenshots
+- `docs/`: the baseline numbers, the launcher v4 contract, the Netlify note, caller workflows and screenshots
 - `api/`: the fetch proxy
 - `config/`: overrides, extras and the `manifest.v2.json` schema (replace it with the launcher's own once that lands)
 - `test/`: suites and the 33 fixtures

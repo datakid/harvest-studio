@@ -12,7 +12,7 @@ const repoRoot = process.cwd();
 const knownDir = path.join(studioDir, 'config', 'known-icons');
 
 const parseArgs = (argv) => {
-  const out = { from: null, set: 'launcher', profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null, workers: null };
+  const out = { from: null, set: 'launcher', profile: 'launcher', out: path.join(repoRoot, 'icons'), links: path.join(repoRoot, 'links.json'), seed: null, faFallback: false, only: null, workers: null, target: 'v3' };
   const take = (i, name) => {
     if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(name + ' needs a value');
     return argv[i + 1];
@@ -25,6 +25,7 @@ const parseArgs = (argv) => {
     else if (a === '--out') out.out = path.resolve(take(i++, a));
     else if (a === '--links') out.links = path.resolve(take(i++, a));
     else if (a === '--seed') out.seed = take(i++, a);
+    else if (a === '--target') out.target = take(i++, a);
     else if (a === '--fa-fallback') out.faFallback = true;
     else if (a === '--workers') out.workers = Number(take(i++, a));
     else if (a === '--only') {
@@ -36,6 +37,7 @@ const parseArgs = (argv) => {
   }
   if (!['launcher', 'fihrist'].includes(out.set)) throw new Error('--set must be launcher or fihrist');
   if (!['launcher', 'legacy-v1'].includes(out.profile)) throw new Error('--profile must be launcher or legacy-v1');
+  if (!['v3', 'v4'].includes(out.target)) throw new Error('--target must be v3 or v4');
   if (out.seed !== null && !/^[0-9a-f]{8}$/.test(out.seed)) throw new Error('--seed must be 8 hex characters');
   return out;
 };
@@ -143,7 +145,7 @@ const main = async () => {
   try {
     result = await runHarvest(
       { targets, overrides, pins, launcherIds: setTargets.map((t) => t.key) },
-      { profile: args.profile, local: !!args.from, seed: args.seed, faFallback: args.faFallback, only: args.only, compute: pool || undefined },
+      { profile: args.profile, local: !!args.from, seed: args.seed, target: args.target, faFallback: args.faFallback, only: args.only, compute: pool || undefined },
       io
     );
   } finally {

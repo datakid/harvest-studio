@@ -1,9 +1,9 @@
 import { createLimiter } from './limiter.js';
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
 import { sniff, EXT_BY_NAME } from './decode.js';
-import { normalize, gate, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
-import { imageToLab, extractColours, tintFromHex, STRONG_SHARE, hexToLab, isHex } from './color.js';
-import { extractGlyph, traceGlyph } from './glyph.js';
+import { normalize, gate, cropImage, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
+import { imageToLab, extractColours, tintFromHex, tintV4, v4Violations, STRONG_SHARE, hexToLab, isHex } from './color.js';
+import { extractGlyph, traceGlyph, traceGlyphAuto, glyphStats, GLYPH_V4_SIZE, GLYPH_V4_CONTENT } from './glyph.js';
 import { polishReport } from './polish.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
 import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
@@ -325,22 +325,30 @@ export const processTarget = async (t, ctx) => {
   return result;
 };
 
-export const analyzeIcon = async (img) => {
+const conformV4 = (tint) => (Array.isArray(tint) && isHex(tint[0]) ? tintV4(tint[0]) : tint);
+
+const glyphOptionsOf = (options = {}) => (options.target === 'v4' ? { size: GLYPH_V4_SIZE, content: GLYPH_V4_CONTENT, twoTone: true } : {});
+
+export const analyzeIcon = async (img, options = {}) => {
   const n = img.width * img.height;
   const lab = imageToLab(img.data, n);
   const colour = extractColours(img.data, img.width, img.height);
   const tint = colour ? tintFromHex(colour.accent) : null;
   const strong = !!colour && colour.share >= STRONG_SHARE;
-  return { gradient: strong ? tint : null, accent: strong ? null : tint, colour, glyph: await extractGlyph(img.data, lab, img.width, img.height) };
+  return { gradient: strong ? tint : null, accent: strong ? null : tint, colour, glyph: await extractGlyph(img.data, lab, img.width, img.height, glyphOptionsOf(options)) };
 };
 
-export const localCompute = { analyze: (image) => analyzeIcon(image), trace: (glyph, key, options) => traceGlyph(glyph, key, options) };
+export const localCompute = { analyze: (image, options) => analyzeIcon(image, options), trace: (glyph, key, options) => traceGlyphAuto(glyph, key, options) };
 
 const baseName = (p) => p.split('/').pop().split('?')[0];
 
 const readSymbols = (svg) => {
   const out = new Map();
-  for (const m of svg.matchAll(/<symbol id="g-([a-z0-9-]+)"[^>]*><path d="([^"]*)"\/><\/symbol>/g)) out.set(m[1], m[2]);
+  for (const m of svg.matchAll(/<symbol id="g-([a-z0-9-]+)"[^>]*>(.*?)<\/symbol>/g)) {
+    const paths = [...m[2].matchAll(/<path([^>]*?) d="([^"]*)"\/>/g)].map((x) => ({ d: x[2], opacity: Number((/fill-opacity="([0-9.]+)"/.exec(x[1]) || [0, 1])[1]) }));
+    if (!paths.length) continue;
+    out.set(m[1], paths.length > 1 ? { d: paths[paths.length - 1].d, layers: paths } : { d: paths[0].d });
+  }
   return out;
 };
 
@@ -386,12 +394,14 @@ export const readPrevious = async (targets, io) => {
         for (const [k, v] of Object.entries(manifest.icons)) {
           if (!v || typeof v !== 'object') continue;
           if (!seed && v.seed) seed = v.seed;
-          const d = symbols.get(k);
+          const sym = symbols.get(k);
           prev.set(k, {
             image: favs.get(k) || null,
             glyphImage: glyphs.get(k) || null,
-            trace: d ? { accepted: true, d, bytes: 0, iou: 1, reason: null } : null,
+            trace: sym ? { accepted: true, d: sym.d, ...(sym.layers ? { layers: sym.layers } : {}), bytes: 0, iou: 1, reason: null } : null,
             tint: v.tint || null,
+            tintRole: v.tintRole || null,
+            v4: v.ink !== undefined && v.bbox ? { ink: v.ink, bbox: v.bbox, layers: v.layers || 1 } : null,
             sourceTint: v.sourceTint || null,
             locked: !!v.locked,
             palette: v.palette || null,
@@ -418,7 +428,7 @@ export const readPrevious = async (targets, io) => {
         if (png) image = (await decodeImage(png, 'png')).image;
         const gp = await tryRead(k + '.glyph.png');
         if (gp) glyphImage = (await decodeImage(gp, 'png')).image;
-        prev.set(k, { image, glyphImage, trace: null, tint: v.tint || null, sourceTint: v.sourceTint || null, locked: false, palette: null, seed: null, shape: 'default', status: v.status || 'found', hash: v.hash || null });
+        prev.set(k, { image, glyphImage, trace: null, tintRole: v.tintRole || null, v4: v.ink !== undefined && v.bbox ? { ink: v.ink, bbox: v.bbox, layers: v.layers || 1 } : null, tint: v.tint || null, sourceTint: v.sourceTint || null, locked: false, palette: null, seed: null, shape: 'default', status: v.status || 'found', hash: v.hash || null });
       }
     } catch {
       prev.clear();
@@ -483,20 +493,22 @@ export const runHarvest = async (input, options = {}, io) => {
   const analyses = new Map();
   const hashes = new Map();
   const reuse = options.reuse || null;
+  const target = options.target === 'v4' ? 'v4' : 'v3';
+  const analysisOptions = target === 'v4' ? { target } : {};
   const reused = new Set();
   for (const r of results) {
     if (!r.image) continue;
     const hash = await pixelHash(r.image);
     hashes.set(r.key, hash);
     const memo = reuse && reuse.get(r.key);
-    if (memo && memo.hash === hash) {
+    if (memo && memo.hash === hash && (memo.target || 'v3') === target) {
       reused.add(r.key);
       analyses.set(r.key, Promise.resolve({ value: memo.analysis }));
       continue;
     }
     analyses.set(
       r.key,
-      compute.analyze(r.image).then(
+      compute.analyze(r.image, analysisOptions).then(
         (value) => ({ value }),
         (e) => ({ error: errText(e) })
       )
@@ -512,7 +524,7 @@ export const runHarvest = async (input, options = {}, io) => {
       if (!hashes.has(r.key)) hashes.set(r.key, await pixelHash(r.image));
       rec.hash = hashes.get(r.key);
       let analysis = { gradient: null, accent: null, colour: null, glyph: null };
-      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image).then((value) => ({ value }), (e) => ({ error: errText(e) })));
+      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image, analysisOptions).then((value) => ({ value }), (e) => ({ error: errText(e) })));
       const analysed = await analyses.get(r.key);
       if (analysed.error) r.analysisError = analysed.error;
       else analysis = analysed.value;
@@ -523,12 +535,17 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.tint = analysis.gradient || catalogue || accent;
       if (catalogue) rec.tintSource = 'catalogue';
       else if (accent) rec.tintSource = 'accent';
+      if (target === 'v4') {
+        rec.tintRole = catalogue ? 'authored' : 'brand';
+        if (!catalogue && Array.isArray(rec.tint) && isHex(rec.tint[0])) rec.tint = tintV4(rec.tint[0]);
+      }
       rec.colour = analysis.colour;
-      if (!analysed.error) memoOut.set(r.key, { hash: rec.hash, analysis, trace: null });
+      if (!analysed.error) memoOut.set(r.key, { hash: rec.hash, target, analysis, trace: null });
       rec.glyphImage = analysis.glyph;
       if (analysis.glyph && !legacy) traceQueue.push(rec);
       if (prev && prev.locked && prev.tint) {
         rec.tint = prev.tint;
+        if (target === 'v4' && prev.tintRole) rec.tintRole = prev.tintRole;
         rec.locked = true;
         rec.palette = prev.palette;
         rec.shape = prev.shape || 'default';
@@ -540,6 +557,8 @@ export const runHarvest = async (input, options = {}, io) => {
       rec.glyphImage = prev.glyphImage;
       rec.trace = prev.trace;
       rec.hash = prev.hash;
+      rec.tintRole = prev.tintRole;
+      rec.v4 = prev.v4;
       rec.tint = prev.tint;
       rec.sourceTint = prev.sourceTint;
       rec.locked = prev.locked;
@@ -608,7 +627,7 @@ export const runHarvest = async (input, options = {}, io) => {
     const mode = options.mode || DEFAULT_MODE;
     const unlocked = new Set(records.filter((r) => !r.locked && !r.kept && r.image && (mode === 'mono' || r.tint)).map((r) => r.key));
     for (const rec of records) if (rec.tint && !rec.sourceTint) rec.sourceTint = rec.tint;
-    const res = applyMode(entries, appOf, { mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked, groupOf });
+    const res = applyMode(entries, appOf, { constrain: target === 'v4' ? conformV4 : null, mode, seed, color: options.monoColor, vary: options.monoVary !== false, spread: options.spread || 1, keys: unlocked, groupOf });
     adjusted = res.adjusted;
     groups = res.groups;
     tight = res.tight;
@@ -618,13 +637,29 @@ export const runHarvest = async (input, options = {}, io) => {
     }
   }
   const contrast = legacy ? { nudged: [], flagged: [] } : guardContrast(entries);
+  const v4Report = { conformed: [], nonConforming: [] };
+  if (target === 'v4') {
+    for (const rec of records) {
+      if (!rec.tint || !rec.image || rec.kept) continue;
+      if (!rec.locked && v4Violations(rec.tint).length && isHex(rec.tint[0])) rec.tint = tintV4(rec.tint[0]);
+      const left = v4Violations(rec.tint);
+      if (left.length) v4Report.nonConforming.push({ key: rec.key, reason: rec.locked ? 'locked' : 'unconformable', violations: left });
+      const source = Array.isArray(rec.sourceTint) && rec.sourceTint.length === 3 ? rec.sourceTint : null;
+      if (!rec.locked && source && v4Violations(source).length) v4Report.conformed.push(rec.key);
+    }
+  }
 
   const probes = [];
   for (const rec of records) {
     if (!rec.image || rec.status === 'override') continue;
     let hash64 = null;
     try {
-      hash64 = await dHash(rec.glyphImage || rec.image, !!rec.glyphImage);
+      let hashed = rec.glyphImage || rec.image;
+      if (target === 'v4' && rec.glyphImage && rec.glyphImage.width === GLYPH_V4_SIZE) {
+        const edge = (GLYPH_V4_SIZE - GLYPH_V4_CONTENT) / 2;
+        hashed = cropImage(rec.glyphImage, edge, edge, GLYPH_V4_CONTENT, GLYPH_V4_CONTENT);
+      }
+      hash64 = await dHash(hashed, !!rec.glyphImage);
     } catch {
       hash64 = null;
     }
@@ -638,7 +673,7 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   const sorted = [...records].sort((a, b) => (a.key < b.key ? -1 : 1));
-  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed });
+  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now, target }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed, target });
 
   const marked = new Set(sorted.filter((r) => r.image || r.fa).map((r) => r.key));
   const unused = launcherIds ? [...marked].filter((k) => !launcherIds.includes(k)).sort() : [];
@@ -659,6 +694,7 @@ export const runHarvest = async (input, options = {}, io) => {
       notfound: results.filter((r) => !byKey.has(r.key) && r.status !== 'skipped').length,
       ...(only ? { skipped: results.filter((r) => r.status === 'skipped').length } : {})
     },
+    ...(target === 'v4' ? { target: 'v4', v4: v4Report } : {}),
     colour: { mode: legacy ? 'legacy' : options.mode || DEFAULT_MODE, seed: legacy ? null : seed, groups, tightGroups: tight, contrastNudged: contrast.nudged, contrastFlagged: contrast.flagged },
     atlas: { cell, cellDefaulted, ...exported.stats },
     gate: options.preview ? null : { ok: exported.gate.ok, failures: exported.gate.failures },

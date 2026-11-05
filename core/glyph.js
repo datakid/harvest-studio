@@ -43,6 +43,11 @@ export const GLYPH_SIZE = 128;
 export const GLYPH_CONTENT = 92;
 export const GLYPH_PAD = 18;
 export const SAFE_TARGET = GLYPH_CONTENT / GLYPH_SIZE;
+export const GLYPH_V4_SIZE = 192;
+export const GLYPH_V4_CONTENT = 124;
+export const MID_ALPHA = 0.5;
+
+export const safeTargetOf = (size) => (size === GLYPH_V4_SIZE ? GLYPH_V4_CONTENT / GLYPH_V4_SIZE : SAFE_TARGET);
 export const SAFE_TOLERANCE = 0.04;
 export const CENTRE_TOLERANCE = 0.03;
 
@@ -80,18 +85,79 @@ export const alphaBounds = (img, threshold = 128) => {
 
 const GLYPH_MARGIN = 6;
 
-const centreOnCentroid = (content) => {
+const centreOnCentroid = (content, size = GLYPH_SIZE, edge = null) => {
   const [cx, cy] = alphaCentroid(content);
   const bounds = alphaBounds(content) || { x: 0, y: 0, width: content.width, height: content.height };
+  const canvas = size;
   const place = (centroid, from, size) => {
-    const want = GLYPH_SIZE / 2 - centroid;
-    return Math.round(Math.min(GLYPH_SIZE - GLYPH_MARGIN - (from + size), Math.max(GLYPH_MARGIN - from, want)));
+    const want = canvas / 2 - centroid;
+    const margin = edge === null ? Math.round((GLYPH_MARGIN * canvas) / GLYPH_SIZE) : edge;
+    return Math.round(Math.min(canvas - margin - (from + size), Math.max(margin - from, want)));
   };
-  const out = makeImage(GLYPH_SIZE, GLYPH_SIZE);
+  const out = makeImage(canvas, canvas);
   return pasteImage(out, content, place(cx, bounds.x, bounds.width), place(cy, bounds.y, bounds.height));
 };
 
-export const extractGlyph = async (data, lab, w, h) => {
+const secondaryPlane = (alpha, lab, n, w) => {
+  const solid = [];
+  for (let p = 0; p < n; p++) if (alpha[p] >= 0.95) solid.push(p);
+  if (solid.length < 400) return null;
+  const sorted = Float32Array.from(solid, (p) => lab[p * 3]).sort();
+  const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+  let lo = at(0.1);
+  let hi = at(0.9);
+  if (hi - lo < 0.15) return null;
+  for (let i = 0; i < 8; i++) {
+    const cut = (lo + hi) / 2;
+    let a = 0;
+    let na = 0;
+    let b = 0;
+    let nb = 0;
+    for (const v of sorted) {
+      if (v < cut) {
+        a += v;
+        na++;
+      } else {
+        b += v;
+        nb++;
+      }
+    }
+    if (!na || !nb) return null;
+    lo = a / na;
+    hi = b / nb;
+  }
+  if (hi - lo < 0.15) return null;
+  const cut = (lo + hi) / 2;
+  const gap = hi - lo;
+  let dark = 0;
+  let between = 0;
+  for (const v of sorted) {
+    if (v < cut) dark++;
+    if (v > lo + gap * 0.35 && v < hi - gap * 0.35) between++;
+  }
+  const share = dark / sorted.length;
+  if (share < 0.1 || share > 0.6 || between / sorted.length > 0.12) return null;
+  const flag = new Uint8Array(n);
+  for (const p of solid) flag[p] = lab[p * 3] < cut ? 1 : 0;
+  let pairs = 0;
+  let same = 0;
+  for (const p of solid) {
+    const x = p % w;
+    for (const q of [p + 1, p + w]) {
+      if (q === p + 1 && x === w - 1) continue;
+      if (q >= n || alpha[q] < 0.95) continue;
+      pairs++;
+      if (flag[q] === flag[p]) same++;
+    }
+  }
+  if (!pairs || same / pairs < 0.92) return null;
+  for (let p = 0; p < n; p++) if (alpha[p] > 0 && alpha[p] < 0.95) flag[p] = lab[p * 3] < cut ? 1 : 0;
+  return flag;
+};
+
+export const extractGlyph = async (data, lab, w, h, options = {}) => {
+  const glyphSize = options.size || GLYPH_SIZE;
+  const glyphContent = options.content || GLYPH_CONTENT;
   const n = w * h;
   let minX = w;
   let minY = h;
@@ -237,15 +303,18 @@ export const extractGlyph = async (data, lab, w, h) => {
     const cover = on / n;
     const gfill = on / ((gx1 - gx0 + 1) * (gy1 - gy0 + 1));
     if (cover < 0.02 || cover > 0.6 || gfill > 0.85) return null;
+    const secondary = options.twoTone ? secondaryPlane(alpha, lab, n, w) : null;
     const full = makeImage(w, h);
     for (let p = 0; p < n; p++) {
       full.data[p * 4] = 255;
       full.data[p * 4 + 1] = 255;
       full.data[p * 4 + 2] = 255;
-      full.data[p * 4 + 3] = Math.round(alpha[p] * 255);
+      full.data[p * 4 + 3] = Math.round(alpha[p] * 255 * (secondary && secondary[p] ? MID_ALPHA : 1));
     }
     const cropped = cropImage(full, gx0, gy0, gx1 - gx0 + 1, gy1 - gy0 + 1);
-    return centreOnCentroid(await resizeTo(cropped, GLYPH_CONTENT, GLYPH_CONTENT));
+    const placed = centreOnCentroid(await resizeTo(cropped, glyphContent, glyphContent), glyphSize, options.content ? Math.floor((glyphSize - glyphContent) / 2) : null);
+    if (secondary) placed.layers = 2;
+    return placed;
   };
 
   const attempts = fill >= 0.7 ? [uniformAlpha, ringAlpha] : [plainAlpha];
@@ -421,6 +490,14 @@ export const iou = (a, b) => {
 
 export const symbolMarkup = (key, d) => `<symbol id="g-${key}" viewBox="0 0 24 24"><path d="${d}"/></symbol>`;
 
+export const LAYERED_MAX_BYTES = 2560;
+export const ACCENT_FILL = 'var(--lx-ga,currentColor)';
+
+export const symbolLayersMarkup = (key, layers) =>
+  '<symbol id="g-' + key + '" viewBox="0 0 24 24">' +
+  layers.map((l) => '<path' + (l.opacity < 1 ? ' fill="' + ACCENT_FILL + '" fill-opacity="' + String(l.opacity).replace(/^0\./, '.') + '"' : '') + ' d="' + l.d + '"/>').join('') +
+  '</symbol>';
+
 export const TRACE_B = Object.freeze({ turdsize: 4, alphamax: 1.2, opticurve: 1, opttolerance: 0.4, extractcolors: false });
 export const TRACE_SIZE = 256;
 export const IOU_CLEAN = 0.92;
@@ -590,4 +667,46 @@ export const traceGlyph = async (glyph, key, { bias = 0 } = {}) => {
   if (score >= IOU_MIN) return { accepted: true, reason: null, d, symbol, bytes, iou: score, stroke };
   if (score >= IOU_CLEAN && d.length < CLEAN_MAX_BYTES && best.subPaths <= CLEAN_MAX_SUBPATHS) return { accepted: true, reason: null, clean: true, d, symbol, bytes, iou: score, stroke };
   return { accepted: false, reason: 'trace IoU below ' + IOU_MIN, d, symbol, bytes, iou: score, stroke };
+};
+
+const planeOf = (glyph, floor) => {
+  const out = makeImage(glyph.width, glyph.height);
+  for (let p = 0; p < glyph.width * glyph.height; p++) {
+    if (glyph.data[p * 4 + 3] >= floor) {
+      out.data[p * 4] = 255;
+      out.data[p * 4 + 1] = 255;
+      out.data[p * 4 + 2] = 255;
+      out.data[p * 4 + 3] = 255;
+    }
+  }
+  return out;
+};
+
+export const traceGlyphAuto = async (glyph, key, options = {}) => {
+  if (glyph.layers !== 2) return traceGlyph(glyph, key, options);
+  const union = planeOf(glyph, Math.round(MID_ALPHA * 255 * 0.5));
+  const face = planeOf(glyph, Math.round((MID_ALPHA * 255 + 255) / 2));
+  const low = await traceGlyph(union, key, options);
+  const high = await traceGlyph(face, key, options);
+  if (low.accepted && high.accepted) {
+    const layers = [{ d: low.d, opacity: MID_ALPHA }, { d: high.d, opacity: 1 }];
+    const symbol = symbolLayersMarkup(key, layers);
+    const bytes = utf8(symbol).length;
+    if (bytes <= LAYERED_MAX_BYTES) return { accepted: true, reason: null, d: high.d, layers, symbol, bytes, iou: Math.min(low.iou, high.iou), stroke: high.stroke };
+  }
+  const flat = await traceGlyph(union, key, options);
+  return { ...flat, flattened: true };
+};
+
+export const glyphStats = (glyph) => {
+  const bounds = alphaBounds(glyph);
+  if (!bounds) return null;
+  let on = 0;
+  for (let p = 0; p < glyph.width * glyph.height; p++) if (glyph.data[p * 4 + 3] >= 128) on++;
+  const r = (v) => Math.round(v * 10000) / 10000;
+  return {
+    ink: r(on / (glyph.width * glyph.height)),
+    bbox: [r(bounds.x / glyph.width), r(bounds.y / glyph.height), r(bounds.width / glyph.width), r(bounds.height / glyph.height)],
+    layers: glyph.layers === 2 ? 2 : 1
+  };
 };

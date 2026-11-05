@@ -24,6 +24,11 @@ on:
         description: Commit the links JSON is read from
         type: string
         required: true
+      target:
+        description: Launcher icon contract, v3 or v4
+        type: string
+        required: false
+        default: v3
       studio-ref:
         description: Tag of harvest-studio to run
         type: string
@@ -52,6 +57,7 @@ jobs:
       ICONS: ${{ inputs.icons-dir }}
       BASE: ${{ inputs.base-sha }}
       HEAD: ${{ inputs.head-sha }}
+      TARGET: ${{ inputs.target }}
       GH_TOKEN: ${{ secrets.token || github.token }}
     steps:
       - name: Check out the calling repository
@@ -101,9 +107,9 @@ jobs:
         run: |
           mkdir -p "$ICONS"
           if [ "$FULL" = "true" ]; then
-            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS"
+            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS" --target "$TARGET"
           else
-            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS" --only "$ONLY"
+            node harvest-studio/cli/harvest.mjs --set "$SET" --links "$LINKS" --out "$ICONS" --only "$ONLY" --target "$TARGET"
           fi
 
       - name: Upload the report

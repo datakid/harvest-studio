@@ -12,7 +12,7 @@ export const createWorkPool = (workers) => {
   };
   return {
     size: workers.length,
-    analyze: (image) => call('analyze', { image }),
+    analyze: (image, options) => call('analyze', { image, options }),
     trace: (glyph, key, options) => call('trace', { glyph, key, options }),
     close: async () => {
       await Promise.all(workers.map((w) => w.close()));
@@ -21,7 +21,7 @@ export const createWorkPool = (workers) => {
 };
 
 export const handleCompute = (fns) => async (type, payload) => {
-  if (type === 'analyze') return fns.analyze(payload.image);
+  if (type === 'analyze') return fns.analyze(payload.image, payload.options);
   if (type === 'trace') return fns.trace(payload.glyph, payload.key, payload.options);
   throw new Error('unknown job ' + type);
 };

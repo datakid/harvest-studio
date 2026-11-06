@@ -10,6 +10,9 @@ import { DEFAULT_SEED, similarPairs } from '../core/tints.js';
 import { PRESETS, HARMONIES, harmony, cleanPalette } from '../core/palettes.js';
 import { listProjects, saveProject, loadProject, removeProject, newId } from './projects.js';
 import { classify, keepBoth, notPresent } from './add.js';
+import { cleanAdjust, adjustSignature } from '../core/adjust.js';
+import { createHistory } from './history.js';
+import { adjustPanel } from './adjust-panel.js';
 
 const prefs = loadPrefs();
 setLang(prefs.lang);
@@ -119,7 +122,7 @@ const applyColours = (only = null) => {
 
 let saveTimer = 0;
 
-const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
+const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, adjust: r.adjust || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
 
 const snapshot = () => ({
   seed: state.seed,
@@ -166,6 +169,7 @@ const enterWork = (primed = false) => {
   state.bloom = true;
   state.dirty = true;
   launcherBuild = null;
+  history.clear();
   state.projectId = newId();
   state.projectName = defaultName();
   if (!primed) applyColours();
@@ -518,6 +522,7 @@ const openProject = async (meta) => {
     state.bloom = true;
     state.dirty = true;
     launcherBuild = null;
+    history.clear();
     state.projectId = meta.id;
     state.projectName = meta.name;
     renderAll();
@@ -713,7 +718,7 @@ const cellEl = (rec, i) => {
     { style: { '--i': i } },
     h(
       'button',
-      { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key, renderId: String(++renderSeq) }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), title: why || undefined, onClick: () => select(rec.key) },
+      { class: 'cell' + (isExcluded(rec) ? ' excluded' : ''), type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key, renderId: String(++renderSeq) }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), title: why || undefined, onClick: () => select(rec.key) },
       rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: rec.ghost ? {} : { animation: 'none' } }),
       h('span', { class: 'name', dir: 'auto' }, rec.name),
       cap ? h('span', { class: 'why' }, cap) : null,
@@ -1076,7 +1081,7 @@ const restoreTile = async (entry) => {
 
 const refreshExportCount = () => {
   const el = document.getElementById('export-btn');
-  if (el) el.lastChild.textContent = t('exportCount', { n: imaged().length });
+  if (el) el.lastChild.textContent = t('exportCount', { n: exportable().length });
   const stat = document.querySelector('.toolbar .stat');
   if (stat) {
     const x = stats();
@@ -1156,8 +1161,10 @@ const renderToolbar = () => {
     h('button', { class: 'btn quiet pairs', id: 'pairs', type: 'button', 'data-pairs': String(similarNow().length), onClick: openPolish }, icon(similarNow().length ? 'warn' : 'check', { size: 16 }), t('similarPairs', { n: similarNow().length })),
     h('div', { class: 'spacer pv' }, h('span', null, t('previewColors')), seg(t('previewColors'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); renderMain(); })),
     h('div', { class: 'pv' }, h('span', null, t('previewCorners')), seg(t('previewCorners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); renderMain(); })),
+    h('button', { class: 'btn icon quiet', id: 'undo-btn', type: 'button', 'data-act': 'undo', disabled: !history.canUndo(), 'aria-label': t('undo'), title: t('undo'), onClick: () => runHistory('undo') }, icon('reset', { size: 16 })),
+    h('button', { class: 'btn icon quiet', id: 'redo-btn', type: 'button', 'data-act': 'redo', disabled: !history.canRedo(), 'aria-label': t('redo'), title: t('redo'), onClick: () => runHistory('redo') }, icon('reset', { size: 16, flip: true })),
     h('button', { class: 'btn quiet', id: 'report-btn', type: 'button', onClick: downloadReport }, icon('download', { size: 16 }), t('report')),
-    h('button', { class: 'btn primary', id: 'export-btn', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('exportCount', { n: s.n }))
+    h('button', { class: 'btn primary', id: 'export-btn', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('exportCount', { n: exportable().length }))
   );
 };
 
@@ -1334,6 +1341,145 @@ const refreshPairs = () => {
   el.replaceChildren(icon(n ? 'warn' : 'check', { size: 16 }), document.createTextNode(t('similarPairs', { n })));
 };
 
+
+const history = createHistory(100);
+const adjustSession = { key: null, before: null, pending: null, timer: 0 };
+let adjustChain = Promise.resolve();
+
+const isExcluded = (rec) => !!(rec && rec.adjust && rec.adjust.exclude);
+const exportable = () => imaged().filter((r) => !isExcluded(r));
+
+const shapeOf = (a) => {
+  const next = { ...cleanAdjust(a) };
+  delete next.exclude;
+  return adjustSignature(next);
+};
+
+const applyAdjustNow = (key, next) => {
+  const run = async () => {
+    const rec = state.records.get(key);
+    if (!rec || !rec.hasImage) return;
+    const clean = cleanAdjust(next);
+    if (shapeOf(clean) !== shapeOf(rec.adjust)) {
+      const payload = await client.call('adjust', { key, adjust: clean, target: state.target });
+      const fresh = decodeRecord(payload, { name: rec.name });
+      rec.raw = fresh.raw;
+      rec.faviconUrl = fresh.faviconUrl;
+      rec.mask = fresh.mask;
+      rec.trace = fresh.trace;
+      rec.hash = fresh.hash;
+    }
+    rec.adjust = Object.keys(clean).length ? clean : null;
+    state.dirty = true;
+    scheduleSave();
+  };
+  adjustChain = adjustChain.then(run, run);
+  return adjustChain;
+};
+
+const afterAdjust = () => {
+  refreshTilesOnly();
+  refreshExportCount();
+  document.querySelectorAll('.cell').forEach((c) => c.classList.toggle('excluded', isExcluded(state.records.get(c.dataset.key))));
+  refreshHistoryButtons();
+};
+
+const flushLive = async () => {
+  clearTimeout(adjustSession.timer);
+  const next = adjustSession.pending;
+  adjustSession.pending = null;
+  if (!next || !adjustSession.key) return;
+  try {
+    await applyAdjustNow(adjustSession.key, next);
+    afterAdjust();
+  } catch (e) {
+    toast(t('retryFailed', { why: e.message || String(e) }));
+  }
+};
+
+const beginSession = (key) => {
+  if (adjustSession.key === key) return;
+  const rec = state.records.get(key);
+  adjustSession.key = key;
+  adjustSession.before = rec && rec.adjust ? { ...rec.adjust } : {};
+};
+
+const adjustLive = (key, next) => {
+  beginSession(key);
+  adjustSession.pending = next;
+  clearTimeout(adjustSession.timer);
+  adjustSession.timer = setTimeout(flushLive, 60);
+};
+
+const adjustCommit = async (key, next) => {
+  beginSession(key);
+  adjustSession.pending = next;
+  await flushLive();
+  const before = adjustSession.before || {};
+  const rec = state.records.get(key);
+  const after = rec && rec.adjust ? { ...rec.adjust } : {};
+  adjustSession.key = null;
+  adjustSession.before = null;
+  if (adjustSignature(before) !== adjustSignature(after)) {
+    history.push({
+      label: 'adjust',
+      undo: async () => {
+        await applyAdjustNow(key, before);
+        afterAdjust();
+        renderAdjust();
+      },
+      redo: async () => {
+        await applyAdjustNow(key, after);
+        afterAdjust();
+        renderAdjust();
+      }
+    });
+  }
+  afterAdjust();
+  renderAdjust();
+};
+
+const adjustSection = () => {
+  const rec = state.records.get(state.selected);
+  if (!rec || !rec.hasImage) return null;
+  return adjustPanel({ rec, target: state.target, live: (next) => adjustLive(rec.key, next), commit: (next) => adjustCommit(rec.key, next), copied: () => toast(t('copied')) });
+};
+
+const renderAdjust = () => {
+  const old = document.getElementById('adjust-panel');
+  const next = adjustSection();
+  if (old && next) old.replaceWith(next);
+  else if (old) old.remove();
+  else if (next) {
+    const el = document.getElementById('inspector');
+    if (el) el.append(next);
+  }
+};
+
+const refreshHistoryButtons = () => {
+  for (const [id, on] of [['undo-btn', history.canUndo()], ['redo-btn', history.canRedo()]]) {
+    const b = document.getElementById(id);
+    if (b) b.disabled = !on;
+  }
+};
+
+const runHistory = async (which) => {
+  if (state.stage !== 'work') return;
+  const done = await history[which]();
+  if (done) {
+    afterAdjust();
+    renderAdjust();
+  }
+};
+
+addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'z') return;
+  const a = document.activeElement;
+  if (a && (a.tagName === 'TEXTAREA' || a.isContentEditable || (a.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(a.type)))) return;
+  e.preventDefault();
+  runHistory(e.shiftKey ? 'redo' : 'undo');
+});
+
 const refreshTilesOnly = () => {
   refreshPairs();
   document.querySelectorAll('.cell').forEach((c) => {
@@ -1435,7 +1581,7 @@ const renderInspector = () => {
   const el = document.getElementById('inspector');
   if (!el) return;
   clear(el);
-  el.append(colourPanel(), selectedPanel());
+  el.append(colourPanel(), selectedPanel(), ...[adjustSection()].filter(Boolean));
 };
 
 const pinnable = (a) => /^https?:\/\//i.test(a.href || '') && a.status !== 'blocked';
@@ -1504,7 +1650,7 @@ const replaceImage = async (rec, file) => {
   }
 };
 
-const patches = () => Object.fromEntries([...state.records.values()].filter((r) => r.hasImage).map((r) => [r.key, requiredPatch(r, prefs.mode, state.seed)]));
+const patches = () => Object.fromEntries([...state.records.values()].filter((r) => r.hasImage).map((r) => [r.key, { ...requiredPatch(r, prefs.mode, state.seed), adjust: r.adjust || null }]));
 
 let launcherBuild = null;
 

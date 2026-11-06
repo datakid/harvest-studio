@@ -24,7 +24,7 @@ export const clear = (el) => {
 };
 
 const NS = 'http://www.w3.org/2000/svg';
-export const svg = (paths, { size = 18, viewBox = '0 0 24 24', stroke = 1.8, fill = 'none' } = {}) => {
+export const svg = (paths, { size = 18, viewBox = '0 0 24 24', stroke = 1.8, fill = 'none', flip = false } = {}) => {
   const el = document.createElementNS(NS, 'svg');
   el.setAttribute('viewBox', viewBox);
   el.setAttribute('width', size);
@@ -35,6 +35,7 @@ export const svg = (paths, { size = 18, viewBox = '0 0 24 24', stroke = 1.8, fil
   el.setAttribute('stroke-linecap', 'round');
   el.setAttribute('stroke-linejoin', 'round');
   el.setAttribute('aria-hidden', 'true');
+  if (flip) el.style.transform = 'scaleX(-1)';
   for (const d of [].concat(paths)) {
     const p = document.createElementNS(NS, 'path');
     p.setAttribute('d', d);

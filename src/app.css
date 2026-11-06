@@ -239,3 +239,12 @@ pre.code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(-
 .toast { pointer-events: none; }
 .toast .toast-act { pointer-events: auto; margin-inline-start: 14px; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; min-height: 32px; padding: 0 4px; }
 .toast div { pointer-events: auto; }
+
+.adjust { display: grid; gap: 14px; }
+.adj-row { display: grid; gap: 6px; align-items: center; }
+.adj-row .label { display: flex; align-items: center; gap: 6px; }
+.adj-ctl { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; }
+.adj-out { min-width: 3.4em; text-align: end; font-variant-numeric: tabular-nums; color: var(--muted, inherit); }
+.adj-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--accent, currentColor); display: inline-block; }
+.cell.excluded .tile-art { opacity: .38; }
+.cell.excluded .name { text-decoration: line-through; }

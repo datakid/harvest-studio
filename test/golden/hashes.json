@@ -1,0 +1,22 @@
+{
+  "v3": {
+    "manifestHash": "1a8e9eb8",
+    "files": {
+      "atlas.34c699b2.webp": "34c699b28e983f7cafc1d40a9d9248f1ee1ff10c9f600fb0b49840168df50028",
+      "glyph-atlas.4b29d6eb.webp": "4b29d6eb36abf02999b434ae4c9a011d033b9caa8930bcaaaa54f3b8b8557a0b",
+      "glyphs.b69385bf.svg": "b69385bff1b264a43bef22864ac900f0ea7c63aa71e4babb0a3a02e35ccd703f",
+      "harvest-report.json": "c19d74faa01e180b1ebade771bd4d3d1e37b2859a55433db7b6e998c4a248bac",
+      "manifest.v2.json": "4e5729faa3f7a2746f96225b496ec7e923480dd815512a272dba7892c1b38f9a"
+    }
+  },
+  "v4": {
+    "manifestHash": "cac8a6a0",
+    "files": {
+      "atlas.34c699b2.webp": "34c699b28e983f7cafc1d40a9d9248f1ee1ff10c9f600fb0b49840168df50028",
+      "glyph-atlas.3fdc614a.webp": "3fdc614a0b73f9ecd450d769ba16b9f2a7ca10b0d5b50b1c3ee539ad460a4835",
+      "glyphs.83bfdabf.svg": "83bfdabfde65be1e7a3f74ac7aca0c034fbe1a9bb67aaec79f258fe4ac91c844",
+      "harvest-report.json": "6fb17b93a2aa847ede2aa8e1fa8c86adb7e464eb729383bf0062918e1327c205",
+      "manifest.v2.json": "00490b28d2c8ed6cab0a031034cf6e348b2979db0a0b89ffef503ff6fa6974d3"
+    }
+  }
+}

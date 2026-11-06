@@ -111,6 +111,13 @@ await check('launcher export passes the gate and zips the contract files', async
   assert.match(report.note, /last harvest/);
   assert.ok(report.atlas.atlasBytes > 0);
   assert.equal(typeof report.gate.ok, 'boolean');
+  const unzipped = unzipSync(new Uint8Array(bytes));
+  const sites = names.filter((n) => /^icons\/reports\/(?!_index)[^/]+\.json$/.test(n));
+  assert.equal(sites.length, files.length);
+  const index = JSON.parse(new TextDecoder().decode(unzipped['icons/reports/_index.json']));
+  assert.equal(index.total, files.length);
+  const one = JSON.parse(new TextDecoder().decode(unzipped[sites[0]]));
+  assert.ok(one.key && one.outcome && Array.isArray(one.attempts));
 });
 
 await check('browser worker export matches the Node run (manifest and atlas pixels)', async () => {
@@ -259,7 +266,7 @@ await check('a site that cannot be reached without a proxy is named in a notice 
   await noProxy.locator('#urls').fill('demo.example.com');
   await noProxy.click('#go');
   await noProxy.waitForSelector('.toast', { timeout: 120000 });
-  assert.match(await noProxy.locator('.toast').first().innerText(), /1 sites were not reached because no fetch proxy is set/);
+  assert.match(await noProxy.locator('.toast').first().innerText(), /1 not reached: no proxy set/);
   assert.equal(await noProxy.locator('.gallery .cell').count(), 3);
 });
 

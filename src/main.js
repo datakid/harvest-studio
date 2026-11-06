@@ -6,7 +6,6 @@ import { recolour, randomSeed, setManualColour, effectiveTheme, tileColours, req
 import { scanJson } from '../core/sources.js';
 import { extrasToTargets, mergeTargets, findDuplicates, dropDuplicates, isFihrist } from '../core/targets.js';
 import { filesFromDrop, isJsonFile, isImageFile, readJsonFile, rescan, buildTargets, pendingCount, parseUrls } from './inputs.js';
-import { tintFromOklch } from '../core/color.js';
 import { DEFAULT_SEED, similarPairs } from '../core/tints.js';
 import { PRESETS, HARMONIES, harmony, cleanPalette } from '../core/palettes.js';
 import { listProjects, saveProject, loadProject, removeProject, newId } from './projects.js';
@@ -87,11 +86,6 @@ const download = (bytes, name, type = 'application/zip') => {
 };
 
 const theme = () => effectiveTheme(prefs.theme);
-
-const leafMask = (() => {
-  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><path fill="black" d="M32 39C19 40 11 32 12 17C27 16 35 27 32 39Z"/><path fill="black" d="M32 38C31 22 40 11 53 10C55 25 47 37 32 38Z"/><path d="M32 55V36" stroke="black" stroke-width="4.5" stroke-linecap="round"/></svg>';
-  return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
-})();
 
 const tile = (rec, { size = 60, mask = null, tint = null, colors = prefs.colors, theme: tone = theme() } = {}) => {
   const col = tileColours(tint || (rec && rec.tint), { colors, theme: tone });
@@ -217,20 +211,6 @@ const renderBar = () => {
     h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('settings'), title: t('settings'), onClick: openSettings }, icon('settings'))
   );
   return bar;
-};
-
-const sproutGrid = () => {
-  const hues = [48, 52, 44, 56, 252, 150, 300, 8, 196, 84, 330, 120];
-  const lights = [0.66, 0.68, 0.64, 0.7, 0.66, 0.66, 0.66, 0.66, 0.66, 0.66, 0.66, 0.66];
-  const grid = h('div', { class: 'sprouts bloom', 'aria-hidden': 'true' });
-  hues.forEach((hue, i) => {
-    const base = tintFromOklch(0.13, (hue * Math.PI) / 180);
-    const art = tile(null, { size: 100, mask: leafMask, tint: base });
-    const wrap = h('div', { style: { '--i': i } }, art);
-    grid.append(wrap);
-    void lights[i];
-  });
-  return grid;
 };
 
 const pendingChips = () => {
@@ -596,8 +576,7 @@ const renderIntake = () => {
     h(
       'div',
       null,
-      h('h1', null, t('heroTitle')),
-      h('p', { class: 'lede' }, t('heroBody')),
+      h('h1', { class: 'sr' }, t('appName')),
       h(
         'div',
         { class: 'intake' },
@@ -622,8 +601,7 @@ const renderIntake = () => {
         state.error ? h('div', { class: 'note bad', role: 'alert' }, state.error) : null,
         recentsPanel()
       )
-    ),
-    sproutGrid()
+    )
   );
   hero.querySelector('textarea').value = urlText;
   return hero;
@@ -712,16 +690,33 @@ const renderBusy = () =>
 
 const contrastFlag = (rec) => (rec.contrast === 'flagged' ? 'bad' : rec.status === 'default' || rec.status === 'stale' || rec.status === 'blocked' ? 'warn' : null);
 
+const caption = (rec) => {
+  if (rec.status === 'stale') return t('staleSource');
+  if (rec.status === 'found' || rec.status === 'override' || rec.status === 'pending') return null;
+  return t(statusKey(rec.status));
+};
+
+const failureText = (rec) => {
+  const item = state.items.get(rec.key);
+  if (!item) return '';
+  if (item.error) return item.error;
+  const bad = (item.attempts || []).find((a) => a.status !== 'used');
+  return bad && bad.reason ? bad.reason : '';
+};
+
 const cellEl = (rec, i) => {
   const flag = contrastFlag(rec);
+  const cap = caption(rec);
+  const why = cap ? failureText(rec) : '';
   return h(
     'li',
     { style: { '--i': i } },
     h(
       'button',
-      { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key, renderId: String(++renderSeq) }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), onClick: () => select(rec.key) },
+      { class: 'cell', type: 'button', role: 'option', 'aria-selected': String(state.selected === rec.key), dataset: { key: rec.key, renderId: String(++renderSeq) }, 'aria-label': t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }), title: why || undefined, onClick: () => select(rec.key) },
       rec.hasImage ? tile(rec) : h('span', { class: 'tile-art ghost', style: rec.ghost ? {} : { animation: 'none' } }),
       h('span', { class: 'name', dir: 'auto' }, rec.name),
+      cap ? h('span', { class: 'why' }, cap) : null,
       flag ? h('span', { class: 'flag ' + flag, title: reasonOf(rec) }, icon('warn', { size: 11, stroke: 2.4 })) : null
     )
   );
@@ -1138,6 +1133,19 @@ document.addEventListener('paste', (e) => {
   addFromUrls(text);
 });
 
+const downloadReport = async (e) => {
+  const b = e.currentTarget;
+  b.disabled = true;
+  try {
+    await client.call('configure', { wasmBase: '/wasm/', settings: await proxySettings() });
+    const r = await client.call('build', { patches: patches(), kind: 'report' });
+    download(r.zip, 'harvest-report.zip');
+  } catch (err) {
+    toast(t('exportFailed', { why: err.message }));
+  }
+  b.disabled = false;
+};
+
 const renderToolbar = () => {
   const s = stats();
   return h(
@@ -1148,6 +1156,7 @@ const renderToolbar = () => {
     h('button', { class: 'btn quiet pairs', id: 'pairs', type: 'button', 'data-pairs': String(similarNow().length), onClick: openPolish }, icon(similarNow().length ? 'warn' : 'check', { size: 16 }), t('similarPairs', { n: similarNow().length })),
     h('div', { class: 'spacer pv' }, h('span', null, t('previewColors')), seg(t('previewColors'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); renderMain(); })),
     h('div', { class: 'pv' }, h('span', null, t('previewCorners')), seg(t('previewCorners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); renderMain(); })),
+    h('button', { class: 'btn quiet', id: 'report-btn', type: 'button', onClick: downloadReport }, icon('download', { size: 16 }), t('report')),
     h('button', { class: 'btn primary', id: 'export-btn', type: 'button', onClick: openExport }, icon('download', { size: 18 }), t('exportCount', { n: s.n }))
   );
 };
@@ -1566,7 +1575,7 @@ const openExport = () => {
       h('p', { class: 'hint-text' }, t('packIntro')),
       h('div', { class: 'field' }, h('label', { for: 'pk-icon' }, t('packIcon')), h('select', { id: 'pk-icon', onChange: (e) => { stateOpts.key = e.target.value; } }, keys.map((k) => h('option', { value: k, selected: k === stateOpts.key }, state.records.get(k).name)))),
       h('div', { class: 'field' }, h('label', { for: 'pk-name' }, t('packName')), h('input', { id: 'pk-name', type: 'text', placeholder: (state.records.get(stateOpts.key) || {}).name || '', value: stateOpts.name, onInput: (e) => { stateOpts.name = e.target.value; } })),
-      h('div', { class: 'row' }, h('div', { class: 'field' }, h('label', { for: 'pk-bg' }, t('packBackground')), h('input', { id: 'pk-bg', type: 'color', value: stateOpts.background, style: { 'min-height': '48px', padding: '4px' }, onInput: (e) => { stateOpts.background = e.target.value; } })), h('div', { class: 'field' }, h('label', { for: 'pk-theme' }, t('packTheme')), h('input', { id: 'pk-theme', type: 'color', value: stateOpts.themeColor || '#17151f', style: { 'min-height': '48px', padding: '4px' }, onInput: (e) => { stateOpts.themeColor = e.target.value; } }))),
+      h('div', { class: 'row' }, h('div', { class: 'field' }, h('label', { for: 'pk-bg' }, t('packBackground')), h('input', { id: 'pk-bg', type: 'color', value: stateOpts.background, style: { 'min-height': '48px', padding: '4px' }, onInput: (e) => { stateOpts.background = e.target.value; } })), h('div', { class: 'field' }, h('label', { for: 'pk-theme' }, t('packTheme')), h('input', { id: 'pk-theme', type: 'color', value: stateOpts.themeColor || '#1a211e', style: { 'min-height': '48px', padding: '4px' }, onInput: (e) => { stateOpts.themeColor = e.target.value; } }))),
       h('div', { class: 'label' }, t('headTags')),
       preview,
       h('div', { class: 'actions-end' }, h('button', { class: 'btn', type: 'button', onClick: async () => { await navigator.clipboard.writeText(preview.textContent); toast(t('copied')); } }, icon('copy', { size: 16 }), t('copy')), h('button', { class: 'btn primary', type: 'button', onClick: async (e) => { const b = e.currentTarget; b.disabled = true; try { const r = await run('pack', { key: stateOpts.key, name: stateOpts.name || (state.records.get(stateOpts.key) || {}).name, background: stateOpts.background, themeColor: stateOpts.themeColor || null }); preview.textContent = r.head; download(r.zip, (stateOpts.key || 'favicon') + '-favicon-pack.zip'); } catch (err) { toast(t('exportFailed', { why: err.message })); } b.disabled = false; } }, icon('download', { size: 18 }), t('downloadZip')))

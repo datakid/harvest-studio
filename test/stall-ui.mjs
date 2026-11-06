@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,7 +46,7 @@ const proxy = createHandler({
 
 const port = 4195;
 const server = await serve(port, proxy);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' });
 await ctx.addInitScript((p) => {

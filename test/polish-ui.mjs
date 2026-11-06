@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { createHandler } from '../api/fetch.js';
 
 const shots = process.env.SHOTS || null;
 const server = await serve(4203, createHandler({ resolve: async () => [{ address: '93.184.216.34', family: 4 }], request: async () => ({ status: 404, headers: {}, body: (await import('node:stream')).Readable.from([Buffer.from('')]), destroy() {} }), env: {} }));
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const errors = [];
 

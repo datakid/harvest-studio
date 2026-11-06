@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { chromium } from 'playwright-core';
@@ -75,7 +76,7 @@ const server = await serve(4183, async (req, res) => {
   res.statusCode = 503;
   res.end('no proxy in this test');
 });
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
 const open = async () => {

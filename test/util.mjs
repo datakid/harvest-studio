@@ -1,4 +1,5 @@
 import '../cli/node-runtime.mjs';
+import { existsSync, readdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,4 +69,11 @@ export const invoke = async (handler, { path: requestPath, headers = {}, method 
   };
   await handler({ method, url: requestPath, headers }, res);
   return out;
+};
+
+export const chromiumPath = () => {
+  const root = process.env.PLAYWRIGHT_BROWSERS_PATH || '/opt/pw-browsers';
+  if (!existsSync(root)) return undefined;
+  const dirs = readdirSync(root).filter((d) => d.startsWith('chromium-')).sort().reverse();
+  return dirs.flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => path.join(root, d, s, 'chrome'))).find((p) => existsSync(p));
 };

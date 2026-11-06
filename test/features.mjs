@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +15,7 @@ const base = (f) => f.split('/').pop();
 const bundle = [path.join(sampleDir, 'manifest.v2.json'), ...[manifest.atlas, manifest.glyphAtlas, manifest.glyphSprite].map((x) => path.join(sampleDir, base(x.file)))];
 
 const server = await serve(4182);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });

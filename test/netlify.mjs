@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -328,7 +329,7 @@ const server = await serve(4201, (req, res) => {
   seenRequests.push({ url: req.url, token: req.headers['x-studio-token'], site: req.headers['sec-fetch-site'] });
   return stubProxy(req, res);
 });
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const chrome = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const ctx = await chrome.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'light' });
 const errors = [];

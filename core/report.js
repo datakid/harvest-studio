@@ -1,9 +1,9 @@
 const fileSafe = (key) => String(key).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '').slice(0, 80) || 'site';
 
-const bundledCopy = (item) => (item.flags || []).includes('stale-source') || (item.attempts || []).some((a) => a.status === 'used' && /shipped/.test(a.reason || ''));
+const bundledCopy = (item) => (item.source && item.source.type === 'bundled') || (item.flags || []).includes('stale-source');
 
 const outcomeOf = (item) => {
-  if (item.status === 'notfound' || item.status === 'blocked') return item.status;
+  if (item.status === 'notfound' || item.status === 'blocked' || item.status === 'override') return item.status;
   if (bundledCopy(item)) return 'bundled';
   return item.status === 'stale' ? 'stale' : item.status === 'default' ? 'default' : 'live';
 };

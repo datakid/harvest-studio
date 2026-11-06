@@ -38,4 +38,28 @@ await check('a shipped copy is told apart from a live find', () => {
   assert.deepEqual(docs['reports/_index.json'].outcomes, { live: 1, notfound: 2, bundled: 1, blocked: 1 });
 });
 
+const outcomes = siteReports(
+  [
+    { key: 'live', url: 'https://l.test', status: 'found', source: { type: 'link', href: 'https://l.test/i.png' }, attempts: [{ type: 'link', href: 'https://l.test/i.png', status: 'used', reason: 'declared' }] },
+    { key: 'bundled', url: 'https://b.test', status: 'found', source: { type: 'bundled', href: 'known-icons/bundled.png' }, attempts: [{ type: 'page', href: 'https://b.test', status: 'failed', reason: 'HTTP 502' }, { type: 'known', href: 'bundled', status: 'used', reason: 'live fetch failed, using the saved icon' }] },
+    { key: 'worded', url: 'https://w.test', status: 'found', source: { type: 'link', href: 'https://w.test/i.png' }, attempts: [{ type: 'link', href: 'https://w.test/i.png', status: 'used', reason: 'shipped in the page head' }] },
+    { key: 'stale', url: 'https://s.test', status: 'stale', attempts: [] },
+    { key: 'default', url: 'https://d.test', status: 'default', attempts: [{ type: 'link', href: 'https://d.test/f.ico', status: 'rejected', reason: 'a single flat colour' }] },
+    { key: 'override', url: null, status: 'override', source: { type: 'override', href: 'fa' }, attempts: [] },
+    { key: 'notfound', url: 'https://n.test', status: 'notfound', attempts: [{ type: 'page', href: 'https://n.test', status: 'failed', reason: 'HTTP 404' }] },
+    { key: 'blocked', url: 'https://x.test', status: 'blocked', attempts: [{ type: 'page', href: 'https://x.test', status: 'blocked', reason: 'HTTP 403' }] }
+  ],
+  { generatedAt: '2026-01-01T00:00:00.000Z' }
+);
+
+await check('every outcome is reported once: live, bundled, stale, default, override, notfound and blocked', () => {
+  const got = Object.fromEntries(outcomes['reports/_index.json'].sites.map((s) => [s.key, s.outcome]));
+  assert.deepEqual(got, { live: 'live', bundled: 'bundled', worded: 'live', stale: 'stale', default: 'default', override: 'override', notfound: 'notfound', blocked: 'blocked' });
+});
+
+await check('a bundled copy is recognised by its source type, not by the wording of a reason', () => {
+  assert.equal(outcomes['reports/bundled.json'].reason, 'HTTP 502');
+  assert.equal(outcomes['reports/worded.json'].outcome, 'live');
+});
+
 finish();

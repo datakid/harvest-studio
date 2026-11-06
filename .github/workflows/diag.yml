@@ -1,0 +1,39 @@
+name: Diagnose
+
+on:
+  push:
+    branches: [diag/compare]
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Old version
+        run: |
+          git worktree add ../old 60d8baa
+          cd ../old
+          npm ci --no-audit --no-fund
+          mkdir -p "$GITHUB_WORKSPACE/out-old"
+          node cli/harvest.mjs --links "$GITHUB_WORKSPACE/diag/launcher-links.json" --out "$GITHUB_WORKSPACE/out-old" --seed 0a1b2c3d || true
+      - name: New version
+        run: |
+          npm ci --no-audit --no-fund
+          mkdir -p out-new out-fihrist
+          node cli/harvest.mjs --links diag/launcher-links.json --out out-new --seed 0a1b2c3d || true
+          node cli/harvest.mjs --set fihrist --links config/fihrist.json --out out-fihrist --seed 0a1b2c3d || true
+      - name: Compare
+        run: node diag/summary.mjs out-old out-new out-fihrist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: |
+            out-old/harvest-report.json
+            out-new/harvest-report.json
+            out-fihrist/harvest-report.json

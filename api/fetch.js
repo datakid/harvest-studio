@@ -102,12 +102,12 @@ const defaultResolve = async (host) => {
   return list.map((r) => ({ address: r.address, family: r.family }));
 };
 
-const defaultRequest = ({ url, address, family, headers, timeoutMs }) =>
+export const defaultRequest = ({ url, address, family, headers, timeoutMs }) =>
   new Promise((resolve, reject) => {
     const lib = url.protocol === 'https:' ? https : http;
     const req = lib.request(
       url,
-      { method: 'GET', headers, timeout: timeoutMs, lookup: (_h, _o, cb) => cb(null, address, family), servername: net.isIP(url.hostname) ? undefined : url.hostname },
+      { method: 'GET', headers, timeout: timeoutMs, lookup: (_h, o, cb) => (o && o.all ? cb(null, [{ address, family }]) : cb(null, address, family)), servername: net.isIP(url.hostname) ? undefined : url.hostname },
       (res) => resolve({ status: res.statusCode, headers: res.headers, body: res, destroy: () => res.destroy() })
     );
     req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })));

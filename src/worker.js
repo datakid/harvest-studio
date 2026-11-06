@@ -14,6 +14,7 @@ import {
   buildFaviconPack,
   zipFiles,
   stableStringify,
+  siteReports,
   readHead,
   urlIdentity,
   netlifyProtection,
@@ -176,6 +177,11 @@ const mapLimit = async (items, n, fn) => {
     })
   );
   return out;
+};
+
+const addSiteReports = (files, now) => {
+  const docs = siteReports(lastReport.items, { generatedAt: now });
+  for (const [name, doc] of Object.entries(docs)) files[name] = new TextEncoder().encode(stableStringify(doc));
 };
 
 const summarise = () => {
@@ -341,8 +347,17 @@ const handlers = {
     if (p.kind === 'launcher') {
       const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed, target: p.target === 'v4' ? 'v4' : 'v3' });
       if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, atlas: { cell: lastReport.atlas.cell, cellDefaulted: lastReport.atlas.cellDefaulted, ...exp.stats }, gate: { ok: exp.gate.ok, failures: exp.gate.failures }, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
+      if (lastReport) addSiteReports(exp.files, now);
       const zip = zipFiles(exp.files, 'icons/');
       return { value: { gate: exp.gate, stats: exp.stats, zip, files: Object.keys(exp.files) }, transfer: [zip.buffer] };
+    }
+    if (p.kind === 'report') {
+      if (!lastReport) throw new Error('nothing harvested yet');
+      const files = {};
+      files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, generatedAt: now }));
+      addSiteReports(files, now);
+      const zip = zipFiles(files, 'report/');
+      return { value: { zip, files: Object.keys(files) }, transfer: [zip.buffer] };
     }
     if (p.kind === 'pack') {
       const rec = sorted.find((r) => r.key === p.key) || sorted.find((r) => r.image);

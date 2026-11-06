@@ -26,8 +26,8 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           mkdir -p out-new out-fihrist
-          node cli/harvest.mjs --links diag/launcher-links.json --out out-new --seed 0a1b2c3d || true
-          node cli/harvest.mjs --set fihrist --links config/fihrist.json --out out-fihrist --seed 0a1b2c3d || true
+          node --import ./diag/count-fetch.mjs cli/harvest.mjs --links diag/launcher-links.json --out out-new --seed 0a1b2c3d 2>&1 | grep FETCH_COUNT | sed "s/^/launcher set requests: /" || true
+          node --import ./diag/count-fetch.mjs cli/harvest.mjs --set fihrist --links config/fihrist.json --out out-fihrist --seed 0a1b2c3d 2>&1 | grep FETCH_COUNT | sed "s/^/fihrist set requests: /" || true
       - name: Compare
         run: node diag/summary.mjs out-old out-new out-fihrist
       - uses: actions/upload-artifact@v4

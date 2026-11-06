@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createNodePool } from './node-pool.mjs';
-import { runHarvest, buildTargets, buildFihristTargets, isFihrist, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
+import { runHarvest, adjustMapOf, buildTargets, buildFihristTargets, isFihrist, extrasToTargets, mergeTargets, urlIdentity, errText, RASTER_EXT, readHead, netlifyProtection, headersReader } from '../core/index.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const studioDir = path.resolve(here, '..');
@@ -72,6 +72,7 @@ const main = async () => {
   const setTargets = args.set === 'fihrist' ? buildFihristTargets(catalog, 'en') : buildTargets(catalog);
   const overrides = { ...(await readJson(overridesPath, {})), ...(await readJson(path.join(repoRoot, 'config', 'icon-overrides.json'), {})) };
   const pins = { ...(await readJson(path.join(studioDir, 'config', 'source-pins.json'), {})), ...(await readJson(path.join(repoRoot, 'config', 'source-pins.json'), {})) };
+  const adjust = adjustMapOf({ ...(await readJson(path.join(studioDir, 'config', 'icon-adjust.json'), {})), ...(await readJson(path.join(repoRoot, 'config', 'icon-adjust.json'), {})) });
   const extras = args.set === 'fihrist' ? [] : extrasToTargets(await readJson(extrasPath, {}));
   const targets = mergeTargets(setTargets, extras);
   const shippedCatalogue = await readJson(path.join(studioDir, 'config', 'catalogue.json'), { categories: [] });
@@ -144,7 +145,7 @@ const main = async () => {
   let result;
   try {
     result = await runHarvest(
-      { targets, overrides, pins, launcherIds: setTargets.map((t) => t.key) },
+      { targets, overrides, pins, adjust, launcherIds: setTargets.map((t) => t.key) },
       { profile: args.profile, local: !!args.from, seed: args.seed, target: args.target, faFallback: args.faFallback, only: args.only, compute: pool || undefined },
       io
     );

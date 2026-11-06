@@ -312,15 +312,24 @@ export const extractGlyph = async (data, lab, w, h, options = {}) => {
       full.data[p * 4 + 3] = Math.round(alpha[p] * 255 * (secondary && secondary[p] ? MID_ALPHA : 1));
     }
     const cropped = cropImage(full, gx0, gy0, gx1 - gx0 + 1, gy1 - gy0 + 1);
-    const placed = centreOnCentroid(await resizeTo(cropped, glyphContent, glyphContent), glyphSize, options.content ? Math.floor((glyphSize - glyphContent) / 2) : null);
+    const centred = centreOnCentroid(await resizeTo(cropped, glyphContent, glyphContent), glyphSize, options.content && !options.keepMargin ? Math.floor((glyphSize - glyphContent) / 2) : null);
+    const shift = options.offset ? [Math.round(options.offset.x * glyphSize), Math.round(options.offset.y * glyphSize)] : null;
+    const placed = shift && (shift[0] || shift[1]) ? pasteImage(makeImage(glyphSize, glyphSize), centred, shift[0], shift[1]) : centred;
     if (secondary) placed.layers = 2;
     return placed;
   };
 
+  const flip = (alpha) => {
+    const out = new Float32Array(n);
+    for (let p = 0; p < n; p++) out[p] = data[p * 4 + 3] >= 128 ? 1 - alpha[p] : 0;
+    return out;
+  };
+
   const attempts = fill >= 0.7 ? [uniformAlpha, ringAlpha] : [plainAlpha];
   for (const make of attempts) {
-    const alpha = make();
-    if (!alpha) continue;
+    const base = make();
+    if (!base) continue;
+    const alpha = options.invert ? flip(base) : base;
     const glyph = await finish(alpha);
     if (glyph) return glyph;
   }

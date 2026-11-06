@@ -1,6 +1,6 @@
 import { createLimiter } from './limiter.js';
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
-import { sniff, EXT_BY_NAME } from './decode.js';
+import { sniff, looksLikePage, PAGE_FOR_IMAGE, EXT_BY_NAME } from './decode.js';
 import { normalize, gate, cropImage, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
 import { imageToLab, extractColours, tintFromHex, tintV4, v4Violations, STRONG_SHARE, hexToLab, isHex } from './color.js';
 import { extractGlyph, traceGlyph, traceGlyphAuto, glyphStats, GLYPH_V4_SIZE, GLYPH_V4_CONTENT } from './glyph.js';
@@ -100,7 +100,7 @@ export const pixelHash = (img) => sha256(img.data);
 
 const finishFrom = async (bytes, source, result) => {
   const ext = sniff(bytes);
-  if (!ext) throw new Error('not an image');
+  if (!ext) throw new Error(looksLikePage(bytes) ? PAGE_FOR_IMAGE : 'not an image');
   const { img, srcWidth, original } = await normalize(bytes, ext);
   const bad = gate(img, srcWidth);
   if (bad) throw new Error(bad);
@@ -276,6 +276,12 @@ export const processTarget = async (t, ctx) => {
         const bytes = await loadHref(c.href, candidateIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
+        if (!ext && looksLikePage(bytes)) {
+          noteRetries(timeouts, at);
+          errors.push(c.type + ': ' + PAGE_FOR_IMAGE);
+          result.attempts.push({ ...at, status: 'rejected', reason: PAGE_FOR_IMAGE });
+          continue;
+        }
         if (!ext) throw new Error('not an image');
         const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
         if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');

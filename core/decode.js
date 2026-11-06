@@ -22,6 +22,14 @@ export const sniff = (buf) => {
   return null;
 };
 
+export const PAGE_FOR_IMAGE = 'page returned instead of image';
+
+export const looksLikePage = (buf) => {
+  if (!buf || !buf.length) return false;
+  const head = text(buf.subarray(0, 4096)).replace(/^\uFEFF/, '').trimStart();
+  return /^<(!doctype html|html|head|body)/i.test(head);
+};
+
 export const EXT_BY_NAME = { png: 'png', jpg: 'jpg', jpeg: 'jpg', gif: 'gif', webp: 'webp', ico: 'ico', svg: 'svg', avif: 'avif', jxl: 'jxl' };
 
 const decodeGif = (bytes) => {

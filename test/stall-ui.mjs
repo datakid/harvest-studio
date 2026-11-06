@@ -80,7 +80,7 @@ const poll = setInterval(async () => {
     texts.add(await page.evaluate(() => (document.querySelector('.progress-text') || {}).textContent || ''));
   } catch {}
 }, 400);
-await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
+await page.waitForFunction(() => document.querySelectorAll('.gallery .cell .tile-art:not(.ghost)').length > 0, null, { timeout: 120000 });
 clearInterval(poll);
 const elapsed = Date.now() - started;
 await page.waitForTimeout(800);
@@ -98,8 +98,8 @@ await check('every site is harvested even though one hangs, one is refused and o
   assert.equal(result.items[SLOW].source, 'png');
 });
 
-await check('the hung site costs one timeout and one retry, not several in a row', () => {
-  assert.ok(elapsed < 22000, 'took ' + elapsed + ' ms');
+await check('the hung site costs one timeout, not several in a row', () => {
+  assert.ok(elapsed < 14000, 'took ' + elapsed + ' ms');
 });
 
 await check('the progress text names the sites it is still waiting for', () => {

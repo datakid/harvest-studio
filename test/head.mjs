@@ -66,10 +66,6 @@ await check('the CLI stops downloading a large page once it has the head', async
       res.writeHead(200, { 'content-type': 'image/vnd.microsoft.icon' });
       return res.end(Buffer.from(ico));
     }
-    if (req.url !== '/') {
-      res.writeHead(404);
-      return res.end();
-    }
     res.writeHead(200, { 'content-type': 'text/html' });
     res.write('<!DOCTYPE html><!-- Netlify --><html><head><link rel="icon" type="image/x-icon" href="favicon.ico"></head><body>');
     let n = 0;

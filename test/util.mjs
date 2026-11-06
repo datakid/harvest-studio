@@ -55,17 +55,3 @@ export const finish = () => {
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 };
-
-export const invoke = async (handler, { path: requestPath, headers = {}, method = 'GET' } = {}) => {
-  const out = { headers: {}, status: 0, text: '' };
-  const res = {
-    statusCode: 0,
-    setHeader: (k, v) => (out.headers[k.toLowerCase()] = v),
-    end: (b) => {
-      out.status = res.statusCode;
-      out.text = Buffer.from(b || '').toString('utf8');
-    }
-  };
-  await handler({ method, url: requestPath, headers }, res);
-  return out;
-};

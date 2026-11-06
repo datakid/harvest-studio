@@ -145,9 +145,6 @@ input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
 .panel h2 { margin: 0; font-size: 12.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
 :root[dir="rtl"] .panel h2 { letter-spacing: 0; text-transform: none; font-size: 14px; }
 .hint-text { margin: 0; font-size: 13.5px; color: var(--muted); }
-.target-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 14px 0 0; justify-content: center; }
-.target-pick > span { font-size: 13.5px; font-weight: 600; }
-.target-pick .hint-text { flex-basis: 100%; text-align: center; }
 .range { display: grid; gap: 6px; }
 .range input[type="range"] { width: 100%; accent-color: var(--coral); min-height: 32px; }
 .colour-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -234,23 +231,3 @@ pre.code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(-
 .dups li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line); font-size: 13.5px; }
 .dups .href { color: var(--muted); overflow-wrap: anywhere; font-size: 12.5px; }
 .dups .more { color: var(--muted); border-style: dashed; }
-
-.toolbar .pairs { padding-inline: 10px; }
-.toolbar .pairs[data-pairs="0"] { color: var(--muted); }
-.checklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.checklist li { display: flex; align-items: center; gap: 10px; }
-.checklist li.warn svg { color: var(--warn, #c98a1b); }
-.pstrip-row { display: grid; gap: 6px; }
-.pstrip { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-radius: var(--r-card); }
-.pstrip.light { background: #f4f5f8; }
-.pstrip.dark { background: #13151b; }
-
-.addbar { display: grid; gap: 10px; margin-block-end: 16px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--surface); }
-.addbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.addbar input[type="text"] { flex: 1 1 220px; min-width: 0; min-height: 44px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--r-item); background: var(--bg); color: var(--ink); font: inherit; }
-.addbar .adding { color: var(--muted); font-size: 13px; margin-inline-start: auto; }
-.drop-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(3px); border: 3px dashed var(--amber); pointer-events: none; }
-.drop-overlay div { display: grid; gap: 10px; justify-items: center; font-size: 18px; }
-.toast { pointer-events: none; }
-.toast .toast-act { pointer-events: auto; margin-inline-start: 14px; background: none; border: 0; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; min-height: 32px; padding: 0 4px; }
-.toast div { pointer-events: auto; }

@@ -1,4 +1,4 @@
-import { makeImage, pasteImage, resizeTo, roundCorners } from './pixels.js';
+import { makeImage, pasteImage, resizeTo } from './pixels.js';
 import { encodeWebp, decodeWebp } from './codecs.js';
 
 export const ATLAS_LIMIT = 153600;
@@ -7,7 +7,7 @@ export const QUALITY_STEPS = [90, 85, 80, 75];
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-export const packAtlas = async (items, cell = DEFAULT_CELL, { corners = null } = {}) => {
+export const packAtlas = async (items, cell = DEFAULT_CELL) => {
   const sorted = [...items].sort(byKey);
   const count = sorted.length;
   const cols = Math.max(1, Math.ceil(Math.sqrt(count)));
@@ -18,7 +18,7 @@ export const packAtlas = async (items, cell = DEFAULT_CELL, { corners = null } =
     const x = (i % cols) * cell;
     const y = Math.floor(i / cols) * cell;
     const fitted = sorted[i].image.width === cell && sorted[i].image.height === cell ? sorted[i].image : await resizeTo(sorted[i].image, cell, cell);
-    pasteImage(image, corners ? roundCorners(fitted, corners) : fitted, x, y);
+    pasteImage(image, fitted, x, y);
     positions.set(sorted[i].key, { x, y });
   }
   return { image, positions, width: image.width, height: image.height, cols, rows, cell };
@@ -39,23 +39,6 @@ export const encodeAtlas = async (image, limit = ATLAS_LIMIT) => {
     if (last.fits) return last;
   }
   return last;
-};
-
-export const MASK_LOSSLESS_LIMIT = 8192;
-export const MASK_ALPHA_QUALITY = 70;
-
-export const encodeMaskAtlas = async (image, limit = ATLAS_LIMIT) => {
-  const flat = { width: image.width, height: image.height, data: new Uint8ClampedArray(image.data) };
-  for (let i = 0; i < flat.data.length; i += 4) {
-    flat.data[i] = 255;
-    flat.data[i + 1] = 255;
-    flat.data[i + 2] = 255;
-  }
-  const lossless = await encodeWebp(flat, { lossless: 1, method: 6, exact: 0 });
-  if (lossless.length <= MASK_LOSSLESS_LIMIT) return { bytes: lossless, mode: 'lossless', fits: lossless.length <= limit };
-  const lossy = await encodeWebp(flat, { quality: 75, method: 6, alpha_quality: MASK_ALPHA_QUALITY });
-  const pick = lossy.length < lossless.length ? { bytes: lossy, mode: 'lossy-alpha-q' + MASK_ALPHA_QUALITY } : { bytes: lossless, mode: 'lossless' };
-  return { ...pick, fits: pick.bytes.length <= limit };
 };
 
 export const cropCell = (atlasImage, x, y, cell) => {

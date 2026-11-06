@@ -33,14 +33,14 @@ const offline = (extra = {}) => ({
 const run = (io, options = {}, list = targets) => runHarvest({ targets: list, overrides: {} }, { profile: 'launcher', mode: 'follow', now: NOW, ...options }, io);
 
 await check('every catalogue app ships an icon and the catalogue matches the shipped one', async () => {
-  assert.equal(targets.length, 34);
+  assert.equal(targets.length, 32);
   for (const t of targets) assert.ok(await readKnown(t.key), t.key);
 });
 
 const offlineRun = await run(offline());
 
 await check('with no network at all the whole catalogue is harvested from the shipped icons', () => {
-  assert.equal(offlineRun.report.summary.found, 34);
+  assert.equal(offlineRun.report.summary.found, 32);
   assert.equal(offlineRun.report.summary.notfound, 0);
   assert.ok(offlineRun.report.gate.ok);
   const protocols = offlineRun.report.items.find((i) => i.key === 'protocols');

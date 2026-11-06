@@ -16,13 +16,13 @@ export const buildTargets = (catalog) => {
   const out = [];
   const categories = catalog && Array.isArray(catalog.categories) ? catalog.categories : [];
   for (const cat of categories) {
-    if (!cat) continue;
+    if (!cat || cat.id === 'mine') continue;
     for (const app of Array.isArray(cat.apps) ? cat.apps : []) {
       if (!app || typeof app.id !== 'string' || app.id.startsWith('u-')) continue;
       if (Array.isArray(app.variants) && app.variants.length) {
-        for (const v of app.variants) out.push({ key: app.id + '--' + v.id, appId: app.id, variantId: v.id, url: v.url, groupId: cat.id, ...catalogueExtras(app) });
+        for (const v of app.variants) out.push({ key: app.id + '--' + v.id, appId: app.id, variantId: v.id, url: v.url, ...catalogueExtras(app) });
       } else if (typeof app.url === 'string') {
-        out.push({ key: app.id, appId: app.id, variantId: null, url: app.url, groupId: cat.id, ...catalogueExtras(app) });
+        out.push({ key: app.id, appId: app.id, variantId: null, url: app.url, ...catalogueExtras(app) });
       }
     }
   }
@@ -41,7 +41,7 @@ export const buildFihristTargets = (data, lang = 'en') => {
   for (const tool of data.tools) {
     if (!tool || typeof tool.id !== 'string' || !KEY_RE.test(tool.id)) continue;
     const title = fihristName(tool, lang) || tool.id;
-    const extras = { ...(typeof tool.group === 'string' && tool.group ? { groupId: tool.group } : {}), ...(PIGMENTS[tool.pigment] ? { catalogueTint: tintFromHex(PIGMENTS[tool.pigment]) } : {}), ...(tool.closed === true ? { closed: true } : {}) };
+    const extras = { ...(PIGMENTS[tool.pigment] ? { catalogueTint: tintFromHex(PIGMENTS[tool.pigment]) } : {}), ...(tool.closed === true ? { closed: true } : {}) };
     if (Array.isArray(tool.variants) && tool.variants.length) {
       for (const v of tool.variants) {
         if (!v || typeof v.id !== 'string' || typeof v.url !== 'string') continue;

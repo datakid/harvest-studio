@@ -10,7 +10,7 @@ const links = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.j
 await check('the real launcher catalogue is detected with variant keys', () => {
   const s = scanJson(links);
   assert.equal(s.kind, 'launcher');
-  assert.equal(s.count, 34);
+  assert.equal(s.count, 32);
   assert.ok(s.targets.some((t) => t.key.includes('--')));
   assert.ok(s.targets.every((t) => /^[a-z0-9-]+$/.test(t.key) && t.url));
 });

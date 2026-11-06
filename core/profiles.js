@@ -1,8 +1,8 @@
 import { gzipSync, zipSync } from 'fflate';
 import { sha256, canonicalJson, utf8 } from './runtime.js';
-import { packAtlas, encodeAtlas, encodeMaskAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
-import { symbolMarkup, symbolLayersMarkup, glyphStats, SYMBOL_MAX_BYTES, LAYERED_MAX_BYTES } from './glyph.js';
-import { resizeTo, CORNER_RATIO } from './pixels.js';
+import { packAtlas, encodeAtlas, ATLAS_LIMIT, DEFAULT_CELL } from './atlas.js';
+import { symbolMarkup, SYMBOL_MAX_BYTES } from './glyph.js';
+import { resizeTo } from './pixels.js';
 import { encodePng, resizeStretch } from './codecs.js';
 import { encodeImage, encodeIcoFrames, EXTENSIONS } from './encode.js';
 import { passesContrast } from './color.js';
@@ -37,25 +37,19 @@ export const stableStringify = (value) => JSON.stringify(sortedValue(value), nul
 
 const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-const symbolOf = (r) => (r.trace.layers && r.trace.layers.length > 1 ? symbolLayersMarkup(r.key, r.trace.layers) : symbolMarkup(r.key, r.trace.d));
-const symbolLimitOf = (r) => (r.trace.layers && r.trace.layers.length > 1 ? LAYERED_MAX_BYTES : SYMBOL_MAX_BYTES);
-
 export const buildSprite = (records) => {
   const symbols = records
     .filter((r) => r.trace && r.trace.accepted)
     .sort(byKey)
-    .map(symbolOf);
+    .map((r) => symbolMarkup(r.key, r.trace.d));
   return '<svg xmlns="http://www.w3.org/2000/svg">' + symbols.join('') + '</svg>';
 };
 
-export const evaluateGate = ({ sprite, symbolSizes, atlas, glyphAtlas, records, symbolLimits = new Map() }) => {
+export const evaluateGate = ({ sprite, symbolSizes, atlas, glyphAtlas, records }) => {
   const failures = [];
   const spriteGzip = gzipSync(utf8(sprite), { level: 9 }).length;
   if (spriteGzip > SPRITE_GZIP_LIMIT) failures.push({ code: 'sprite-gzip', message: 'glyph sprite is ' + spriteGzip + ' bytes gzipped, limit ' + SPRITE_GZIP_LIMIT, value: spriteGzip });
-  for (const [key, size] of symbolSizes) {
-    const limit = symbolLimits.get(key) || SYMBOL_MAX_BYTES;
-    if (size > limit) failures.push({ code: 'symbol-size', key, message: 'symbol ' + key + ' is ' + size + ' bytes, limit ' + limit, value: size });
-  }
+  for (const [key, size] of symbolSizes) if (size > SYMBOL_MAX_BYTES) failures.push({ code: 'symbol-size', key, message: 'symbol ' + key + ' is ' + size + ' bytes, limit ' + SYMBOL_MAX_BYTES, value: size });
   if (atlas && atlas.bytes.length > ATLAS_LIMIT) failures.push({ code: 'atlas-size', message: 'atlas is ' + atlas.bytes.length + ' bytes, limit ' + ATLAS_LIMIT, value: atlas.bytes.length });
   if (glyphAtlas && glyphAtlas.bytes.length > ATLAS_LIMIT) failures.push({ code: 'glyph-atlas-size', message: 'glyph atlas is ' + glyphAtlas.bytes.length + ' bytes, limit ' + ATLAS_LIMIT, value: glyphAtlas.bytes.length });
   for (const r of records) {
@@ -64,25 +58,13 @@ export const evaluateGate = ({ sprite, symbolSizes, atlas, glyphAtlas, records, 
   return { ok: failures.length === 0, failures, spriteGzip };
 };
 
-const v4Fields = (r) => {
-  const out = {};
-  const stats = r.v4 || (r.glyphImage ? glyphStats(r.glyphImage) : null);
-  if (stats) {
-    out.ink = stats.ink;
-    out.bbox = stats.bbox;
-    out.layers = r.trace && r.trace.accepted && r.trace.layers && r.trace.layers.length > 1 ? 2 : r.trace && r.trace.accepted ? 1 : stats.layers;
-  }
-  if (r.tint) out.tintRole = r.tintRole || (r.tintSource === 'catalogue' ? 'authored' : 'brand');
-  return out;
-};
-
-export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, generatedAt, prefix = LAUNCHER_PROFILE.prefix, seed = null, shapes = {}, target = 'v3' } = {}) => {
+export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, generatedAt, prefix = LAUNCHER_PROFILE.prefix, seed = null, shapes = {} } = {}) => {
   const withImage = records.filter((r) => r.image);
   const rejected = records.filter((r) => !(r.trace && r.trace.accepted) && r.glyphImage);
-  const atlasPack = await packAtlas(withImage.map((r) => ({ key: r.key, image: r.image })), cell, { corners: CORNER_RATIO });
+  const atlasPack = await packAtlas(withImage.map((r) => ({ key: r.key, image: r.image })), cell);
   const atlasEnc = withImage.length ? await encodeAtlas(atlasPack.image) : null;
   const glyphPack = rejected.length ? await packAtlas(rejected.map((r) => ({ key: r.key, image: r.glyphImage })), cell) : null;
-  const glyphEnc = glyphPack ? await encodeMaskAtlas(glyphPack.image) : null;
+  const glyphEnc = glyphPack ? await encodeAtlas(glyphPack.image) : null;
   const sprite = buildSprite(records);
   const spriteBytes = utf8(sprite);
   const spriteHash = await hash8(spriteBytes);
@@ -91,13 +73,9 @@ export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, genera
 
   const icons = {};
   const symbolSizes = new Map();
-  const symbolLimits = new Map();
   for (const r of [...records].sort(byKey)) {
     const accepted = r.trace && r.trace.accepted;
-    if (accepted) {
-      symbolSizes.set(r.key, utf8(symbolOf(r)).length);
-      symbolLimits.set(r.key, symbolLimitOf(r));
-    }
+    if (accepted) symbolSizes.set(r.key, utf8(symbolMarkup(r.key, r.trace.d)).length);
     const glyph = accepted ? { symbol: 'g-' + r.key } : r.glyphImage && glyphPack ? { atlas: glyphPack.positions.get(r.key) } : null;
     const tint = r.tint || null;
     const entry = {
@@ -113,7 +91,6 @@ export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, genera
       locked: !!r.locked
     };
     if (Array.isArray(r.sourceTint) && tint && r.sourceTint.join() !== tint.join()) entry.sourceTint = r.sourceTint;
-    if (target === 'v4') Object.assign(entry, v4Fields(r));
     icons[r.key] = entry;
   }
 
@@ -127,7 +104,7 @@ export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, genera
     icons
   };
 
-  const gate = evaluateGate({ sprite, symbolSizes, symbolLimits, atlas: atlasEnc, glyphAtlas: glyphEnc, records });
+  const gate = evaluateGate({ sprite, symbolSizes, atlas: atlasEnc, glyphAtlas: glyphEnc, records });
   const files = {};
   files['glyphs.' + spriteHash + '.svg'] = spriteBytes;
   if (atlasEnc) files['atlas.' + atlasHash + '.webp'] = atlasEnc.bytes;
@@ -148,7 +125,7 @@ export const buildLauncherExport = async (records, { cell = DEFAULT_CELL, genera
   return { files, manifest, gate, stats, replaces: /^(glyphs|atlas|glyph-atlas)\.[0-9a-f]{8}\.(svg|webp)$/ };
 };
 
-export const buildLegacyExport = async (records, { generatedAt, prefix = 'icons/', target = 'v3' } = {}) => {
+export const buildLegacyExport = async (records, { generatedAt, prefix = 'icons/' } = {}) => {
   const files = {};
   const icons = {};
   for (const r of [...records].sort(byKey)) {
@@ -166,7 +143,6 @@ export const buildLegacyExport = async (records, { generatedAt, prefix = 'icons/
     }
     const entry = { favicon, glyph, tint: r.tint || null, status: r.status, checkedAt: r.checkedAt, hash: r.hash || null };
     if (Array.isArray(r.sourceTint) && r.tint && r.sourceTint.join() !== r.tint.join()) entry.sourceTint = r.sourceTint;
-    if (target === 'v4') Object.assign(entry, v4Fields(r));
     icons[r.key] = entry;
   }
   files['manifest.json'] = utf8(stableStringify({ version: 1, generatedAt, icons }));

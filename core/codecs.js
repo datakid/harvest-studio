@@ -187,30 +187,8 @@ export const svgTextUnsupported = (svg) => {
   return false;
 };
 
-const SCHEME_AT = /@media\s*[^{]*prefers-color-scheme\s*:\s*(dark|light)[^{]*\{/gi;
-
-export const forceLightScheme = (svg) => {
-  let out = String(svg);
-  let guard = 0;
-  for (;;) {
-    SCHEME_AT.lastIndex = 0;
-    const m = SCHEME_AT.exec(out);
-    if (!m || guard++ > 200) return out;
-    let depth = 1;
-    let i = m.index + m[0].length;
-    while (i < out.length && depth) {
-      if (out[i] === '{') depth++;
-      else if (out[i] === '}') depth--;
-      i++;
-    }
-    const inner = out.slice(m.index + m[0].length, depth ? out.length : i - 1);
-    out = out.slice(0, m.index) + (m[1].toLowerCase() === 'light' ? inner : '') + out.slice(i);
-  }
-};
-
-export const rasterSvg = async (source, { width = null, height = null, background = null } = {}) => {
+export const rasterSvg = async (svg, { width = null, height = null, background = null } = {}) => {
   await ready.resvg();
-  const svg = forceLightScheme(source);
   const opts = {};
   if (width) opts.fitTo = { mode: 'width', value: width };
   else if (height) opts.fitTo = { mode: 'height', value: height };

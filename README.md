@@ -3,9 +3,7 @@
 A standalone web app that harvests favicons for apps, traces glyphs, colours the whole set and exports it. It does two jobs:
 
 - **Launcher profile**: produces exactly the icon files the LinkExpress launcher reads (`atlas.<hash8>.webp`, `glyphs.<hash8>.svg`, `glyph-atlas.<hash8>.webp`, `manifest.v2.json`, `harvest-report.json`), with a budget gate and a contrast guardrail. This is what the weekly job and the "Launcher set" export use.
-- **Any app, any JSON**: paste a site address, drop images or a folder, or load any JSON that lists sites or icons (the launcher `links.json` and the Fihrist file are detected automatically). Export a favicon pack for one site, or every icon in custom formats and sizes.
-
-The work view is additive: you can keep adding sites, files, folders or whole sets to a harvest that is already on screen (see [Adding to a set](#adding-to-a-set)). A reusable GitHub workflow re-harvests the icons of the launcher and Fihrist repositories whenever their JSON changes (see [Automatic updates](#automatic-updates)).
+- **Any app, any JSON**: paste a site address, drop images or a folder, or load any JSON that lists sites or icons (the launcher `links.json` is detected automatically). Export a favicon pack for one site, or every icon in custom formats and sizes.
 
 ## Run it
 
@@ -13,7 +11,7 @@ The work view is additive: you can keep adding sites, files, folders or whole se
 npm install        # also installs core/
 npm run build      # writes dist/
 npm run serve      # http://localhost:4173
-npm test           # builds, then runs every suite in test/run-all.mjs
+npm test           # builds, then runs the launcher, proxy, sources, UI and feature suites
 ```
 
 Node 22 or newer. The UI suite drives Chromium through Playwright (set `PLAYWRIGHT_BROWSERS_PATH` or have Chromium installed).
@@ -27,14 +25,13 @@ node path/to/harvest-studio/cli/harvest.mjs --profile launcher
 
 The CLI works relative to the folder you run it in: it reads `./links.json` and writes `./icons/` unless you pass `--links` and `--out`.
 
-Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--set launcher|fihrist` (what kind of file `--links` is, default `launcher`), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`, `--only <key>[,<key>...]` (`--only none` keeps every key and only rebuilds the manifest, which prunes removed keys), `--workers <n>` (run analysis and tracing in worker threads; off by default, because it is slower on machines with few cores), `--target v3|v4` (`v4` writes the launcher v4 icon contract: 192 px glyphs in a 124 px box, two-tone layers, OKLCH tint rules and the `ink`, `bbox`, `layers`, `tintRole` fields; see `docs/launcher-v4-contract.md`).
+Flags: `--from <dir>` (read `<key>.<ext>` files instead of fetching), `--profile launcher|legacy-v1`, `--out <dir>`, `--links <file>`, `--seed <8 hex>`, `--fa-fallback`, `--only <key>[,<key>...]`.
 
 - Exit 0 on success, even when some keys are `stale`. Exit 1 when the budget gate blocks the export or `links.json` is invalid.
 - Without `--seed` the CLI reuses the seed from the existing `manifest.v2.json`, or `1f2e3d4c`.
 - Tints marked `locked: true` in the existing manifest are kept; `sourceTint` is refreshed from the current favicon.
 - `legacy-v1` writes the old PNG files and v1 manifest with the old `separateTints` logic. It exists only for comparing against the old harvest script.
-- `config/icon-overrides.json` and `config/extras.json` carry the same meaning as the old `harvest/` files. A `config/source-pins.json` or `config/icon-overrides.json` in the folder you run the CLI in is merged over the shipped one.
-- `cli/diff-links.mjs --base <sha> --head <sha> --links <file> --set launcher|fihrist` prints `{ added, changed, removed, renamedOnly, full, only }` for two versions of a links file. A key counts as changed when its address, its FontAwesome icon or its catalogue colour changed; a rename of titles or labels changes no icon.
+- `config/icon-overrides.json` and `config/extras.json` carry the same meaning as the old `harvest/` files.
 
 ## Using the catalogue
 
@@ -67,19 +64,9 @@ For each site the page head is read and icons are tried in this order, stopping 
 
 ## Colours
 
-Every icon is read in OKLab: its pixels are grouped into colour clusters (k-means, deterministic), and the accent is the cluster with the best mix of area and chroma, with near-white, near-black and edge clusters counted down. A favicon with no usable colour takes the catalogue gradient or the Fihrist pigment. A launcher tint always has exactly three stops.
-
-The default mode is **Separate**. Inside each launcher tab or Fihrist group, tints are pushed apart until every pair differs by at least 0.06 in OKLab, and by at least 14 degrees of hue where chroma allows, moving each icon as little as it can (hue 25 degrees, chroma 15 percent, lightness 0.05 at most) and always passing the contrast guard. The result is seeded, so every run is the same. Kept (locked) tints never move. **Follow** keeps every favicon on its own colour and varies only look-alikes slightly. **One colour** paints everything with a colour you pick, **Family** spreads look-alikes further, **Palette** spreads a palette over the set, and **Original** leaves the favicon colours alone. Any icon can be given its own colour and kept.
+The default mode, **Follow**, keeps every icon on its own favicon colour. Only look-alikes (colours within a small distance) are varied, inside their own colour (hue about ±10°, lightness ±0.06, chroma ±8%), seeded per icon so the result is the same every run. **One colour** paints everything with a colour you pick, optionally varied. **Family** is the old harvest behaviour, which spreads look-alikes further. **Original** leaves the favicon colours alone. Any icon can be given its own colour and kept.
 
 The contrast guardrail checks the launcher's vivid tile (white glyph on the clamped tint) in light and dark. Tints that fail are darkened by up to 0.12 lightness; locked or manual tints are flagged instead of changed. A tint that still fails blocks the Launcher export.
-
-**Polish score.** `harvest-report.json` carries a `polish` block (tiles, glyph tiles, glyphs inside the safe area, rounded corners, similar pairs, raster fallbacks, contrast flags and the keys whose stroke was re-traced) and the Studio shows the same checklist in its Polish dialog, with preview strips for the vivid and muted tiles in light and dark. Glyphs fill 72 percent of the cell and are centred on their visual centre. A traced glyph whose stroke is more than 1.6 times the set median is traced again with a heavier or lighter threshold.
-
-**Backgrounds.** A flat white or near-black square behind a logo is removed (flood fill from the corners, only when it covers at least 18 percent of the image and enough of the mark stays), and the mark is re-centred in the safe area. A flat chromatic background is kept.
-
-## Source pins
-
-An icon can be pinned to one source. `config/source-pins.json` maps a key to an address, and the Studio shows every source it tried under "Everything tried", with "Use this one", "Unpin" and "Copy pin JSON". A pinned source is recorded as `source.type: "pinned"`. A photographic or JPEG `apple-touch-icon` yields to a declared SVG that renders with at least two chromatic colours.
 
 ## Pages are read only up to the head
 
@@ -87,11 +74,7 @@ The CLI, the Studio and the proxy read a page only until its closing `</head>`, 
 
 ## Fetch proxy
 
-Browsers cannot read most sites (Netlify sites send no CORS headers), so `api/fetch.js` (a Vercel function) fetches pages and icons for the app.
-
-**Built in, no setup.** The deployed Studio reaches every site in `api/known-hosts.json` (built from the catalogue, the extras and the Fihrist file by `scripts/known-hosts.mjs`) with no token: same-origin browser requests to those hosts are answered, limited per address by `STUDIO_PUBLIC_RATE` (default 300 a minute). Settings shows "Proxy: built-in (automatic)". Redirects may go to another known host, to the same registrable domain, or to a host in `config/proxy-cdn.json` for images and pages. Any other host still needs a token. If you prefer that a Netlify site answers the browser itself, `docs/netlify-cors.md` has an optional `_headers` snippet.
-
-**With a token.** Requests that carry the `x-studio-token` header matching the `STUDIO_TOKEN` environment variable can fetch any public address, and the function:
+Browsers cannot read most sites, so `api/fetch.js` (a Vercel function) fetches pages and icons for the app. It only answers requests that carry the `x-studio-token` header matching the `STUDIO_TOKEN` environment variable, and it:
 
 - accepts only http and https on ports 80, 443, 8080 and 8443, with no credentials in the URL
 - resolves the host and refuses any private, loopback, link-local, multicast or reserved address (IPv4 and IPv6), then connects to the address it checked, so a changing DNS answer cannot redirect it
@@ -99,61 +82,15 @@ Browsers cannot read most sites (Netlify sites send no CORS headers), so `api/fe
 - cuts the response at 512 KiB (an HTML page requested with `mode=head` stops at its closing head tag or 256 KiB) and the request at 8 seconds
 - passes only pages, images, JSON and manifests
 - returns the upstream status in `x-upstream-status`
-- forwards `If-None-Match` and `If-Modified-Since`, and returns a 304 as status 200 with `x-upstream-status: 304`, an empty body and the upstream `x-upstream-etag` and `x-upstream-last-modified`
 
 Without a proxy the Studio can only reach sites that allow direct browser access; every other address ends `not found` with the reason "needs the fetch proxy" in its item panel, and a notice names how many were not reached. Images you drop in never need the proxy.
 
 The Studio's launcher export includes `harvest-report.json` from the last harvest (with a `note` saying so); edits made in the Studio afterwards are not reflected in it. Opened sets have no report.
 
-Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings if you want to harvest sites outside the known list. The token stays in the browser tab only. Keep the token private. The CLI and the GitHub workflow run in Node, where CORS does not apply, so they need neither a proxy nor a token.
+Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio address) in the Vercel project, then paste the function address and the token into Settings. The token stays in the browser tab only. Keep the token private.
 
 - **Rate limit:** each token may make `STUDIO_RATE_LIMIT` requests per minute (default 1200, which covers a full catalogue run; `0` turns it off). Over the limit the proxy answers 429 with `retry-after`, and the Studio stops with a message naming the wait. Requests with a wrong token do not count. The counter lives in the memory of one function instance, so on Vercel it limits each warm instance, not the whole project; treat it as a guard against loops, not as a quota.
 - **Caching:** a successful image response carries `cache-control: private, max-age=300` and `vary: x-studio-token`, so a request with another token never reuses the cached copy. Everything else, including errors, stays `no-store`.
-
-## Adding to a set
-
-The work view has an add bar: type or paste one or many addresses, or use Add files, Add folder, Add JSON, and the Launcher, Fihrist and Both buttons (they add only the entries that are not there yet). You can also drop files anywhere on the view, or paste addresses with Ctrl or Cmd+V when no field has focus. Ghost tiles with the names appear at once and fill in as each site finishes, and the tiles already on screen are not rebuilt.
-
-- **Same key:** from the same site (or a file with no address) the Studio asks once for the whole batch: update the existing tile, keep both, or skip. A key from a different site is added with a `-2` suffix and a notice says so. Updating keeps a kept colour.
-- **Colours:** new tiles are coloured against every tile already there, which stay where they are.
-- **Each tile** has Re-harvest, Use another source, Replace image, Keep this colour and Remove (with Undo for 8 seconds) in the inspector.
-- **Saving:** additions, removals and kept colours are saved to the project automatically. Start over asks first only while there are unsaved changes.
-
-## Performance
-
-Measured on a 2-CPU machine against `docs/baseline.json`, and checked by `test/perf.mjs`.
-
-- Requests go through one limiter: 8 at a time, 2 per host, first in first out. The first tile of a 34-site harvest shows in about one second with 300 ms of proxy latency, and the whole harvest takes about six seconds. No main-thread task passes 200 ms.
-- The worker caches fetched pages and icons in IndexedDB (`hs:cache`, 24 hours, 50 MB, least recently used first) and re-harvest revalidates with `If-None-Match`. A second harvest of the same set makes no upstream requests.
-- When the pixels of an icon are unchanged, its colour analysis and trace are reused, with byte-identical output.
-- The worker, the wasm codecs and the font subsets load only when needed. `app.js` is 34.9 KB gzip, 8.3 KB more than v0.1.
-- The CLI harvest of the 34 fixtures takes about 2.3 seconds, 1.24 times the v0.1 time: glyphs are now traced as up to eight candidates and heavy strokes are traced again, which is what makes the icons correct.
-
-## Automatic updates
-
-`.github/workflows/harvest-icons.yml` is a reusable workflow. When the launcher's `links.json` (or the Fihrist JSON) changes on `main`, it finds the keys that were added or changed, re-harvests only those, prunes removed ones, and commits the result to `beta/icons`. It opens one pull request `beta/icons` into `main`, or updates it. If the manifest hash does not change there is no commit and no pull request. A change that touches only titles or labels stops early with "no icon-relevant changes".
-
-Add a short caller to each repository (`docs/callers/launcher-icons.yml` and `docs/callers/fihrist-icons.yml` are ready to copy):
-
-```
-jobs:
-  icons:
-    permissions:
-      contents: write
-      pull-requests: write
-    uses: datakid/harvest-studio/.github/workflows/harvest-icons.yml@v0.2.0
-    with:
-      set: launcher
-      links-path: links.json
-      icons-dir: icons
-      base-sha: ${{ github.event.before }}
-      head-sha: ${{ github.sha }}
-    secrets: inherit
-```
-
-The caller runs on a push to the links file, by hand, and weekly. On the weekly and manual runs there is no `before`, so everything is harvested. The run fails when the budget gate or the contrast gate blocks, and `harvest-report.json` is uploaded either way. The pull request text lists the added, changed and removed keys, a table of each icon's source, tint, trace score and flags, the polish counts, and a checklist of blocked or stale-source items.
-
-Pull requests opened with the default `GITHUB_TOKEN` do not start other workflows. If the repository's own checks must run on `beta/icons`, create a GitHub App, give the workflow its token with `actions/create-github-app-token`, and pass it as the `token` secret.
 
 ## Deploy
 
@@ -163,9 +100,7 @@ Push this folder as its own repository and import it in Vercel with the default 
 
 - `core/`: the portable pipeline (ESM, runs in Node 22 and a Web Worker)
 - `src/`: the app (vanilla JS, built with esbuild), `worker.js` runs the codecs
-- `cli/`: the harvest entry point, `diff-links.mjs` and the workflow helpers
-- `.github/workflows/`: the reusable icon workflow
-- `docs/`: the baseline numbers, the launcher v4 contract, the Netlify note, caller workflows and screenshots
+- `cli/`: the Node entry point
 - `api/`: the fetch proxy
 - `config/`: overrides, extras and the `manifest.v2.json` schema (replace it with the launcher's own once that lands)
 - `test/`: suites and the 33 fixtures
@@ -182,11 +117,11 @@ The traced glyphs use `esm-potrace-wasm`, which is GPL-2.0 (it wraps potrace). T
 
 ## Opening earlier work
 
-- **Existing sets:** drop `manifest.v2.json` together with its `atlas.<hash>.webp` (and optionally `glyph-atlas.<hash>.webp` and `glyphs.<hash>.svg`) and press "Open this set". Colours, kept colours and the seed carry over, and nothing is recoloured on open. The icons come from the atlas cells, so they are at the atlas cell size (128 px by default).
-- **Projects:** every working set is saved automatically in this browser (IndexedDB, newest 12) and listed on the start screen under "Recent work". A restored project keeps its colours, locks, pins, seed and mode. Images you replaced lose the full-size original, so a favicon pack's 512 px icon is made from the 192 px image.
+- **Existing sets:** drop `manifest.v2.json` together with its `atlas.<hash>.webp` (and optionally `glyph-atlas.<hash>.webp` and `glyphs.<hash>.svg`) and press "Open this set". Colours, kept colours and the seed carry over, and the mode is set to Follow so nothing is recoloured on open. The icons come from the atlas cells, so they are at the atlas cell size (128 px by default).
+- **Projects:** every working set is saved automatically in this browser (IndexedDB, newest 12) and listed on the start screen under "Recent work". A restored project keeps its colours, locks, seed and mode. Images you replaced lose the full-size original, so a favicon pack's 512 px icon is made from the 192 px image.
 - **Palettes:** the Palette mode spreads a palette evenly across the icons, with optional slight variation. Start from a preset, build one from a colour (analogous, complementary, triad, split, four, shades) or edit the swatches, then save it by name. Saved palettes live in this browser's local storage.
 
 ## Known limits
 
-- Lossy atlas files use WebP effort 5 and the lossless probe skips the slow encode when it cannot fit, so a full catalogue harvest takes about a third of the time of earlier versions; atlas files are a few percent larger for the same quality step, still inside the 150 KiB budget. Each target in the Studio is capped at 30 seconds in total; a timeout is retried once, and the progress line names the sites it is still waiting for.
+- Lossy atlas files use WebP effort 5 and the lossless probe skips the slow encode when it cannot fit, so a full catalogue harvest takes about a third of the time of earlier versions; atlas files are a few percent larger for the same quality step, still inside the 150 KiB budget. Each target in the Studio is capped at 25 seconds in total; a site that does not answer is not retried, other sites on the same host are skipped, and the progress line names the sites it is still waiting for.
 - An SVG favicon with `<text>` is drawn with the bundled Readex Pro Regular (Latin, Latin Extended, Vietnamese and Arabic). Text with emoji or other scripts is rejected as `failed` with the reason "svg text uses characters the bundled font lacks" instead of drawing empty boxes, and the next icon source is tried. Drop the image in yourself or use Replace image for those sites.

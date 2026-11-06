@@ -1,1 +1,4 @@
-{}
+{
+  "alt": { "url": "https://alt-app-lanucher.vercel.app/", "name": "Fihrist" },
+  "studio": { "url": "https://harvest-studio-phi.vercel.app/", "name": "Harvest Studio" }
+}

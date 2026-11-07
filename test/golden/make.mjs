@@ -48,7 +48,8 @@ export const hookInventory = async () => {
     for (const m of text.matchAll(/__studio\.([A-Za-z]+)/g)) studio.add(m[1]);
   }
   const srcDir = path.join(studioDir, 'src');
-  const source = (await Promise.all((await fs.readdir(srcDir)).filter((n) => /\.(js|html)$/.test(n)).map((n) => fs.readFile(path.join(srcDir, n), 'utf8')))).join('\n');
+  const entries = await fs.readdir(srcDir, { recursive: true });
+  const source = (await Promise.all(entries.filter((n) => /\.(js|html)$/.test(n) && !n.startsWith('shims')).map((n) => fs.readFile(path.join(srcDir, n), 'utf8')))).join('\n');
   return { ids: [...ids].filter((i) => !/^[0-9a-f]{3,6}$/i.test(i) && source.includes(i)).sort(), acts: [...acts].sort(), studio: [...studio].sort() };
 };
 

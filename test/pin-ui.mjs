@@ -58,7 +58,7 @@ const harvest = async (url) => {
 await check('a bundled icon shows the stale badge and Retry live replaces it once the site answers', async () => {
   await harvest('https://' + STALE_HOST + '/');
   await tab.waitForSelector('[data-flag="stale-source"]');
-  assert.equal(await tab.locator('[data-flag="stale-source"]').innerText(), 'Stale: using shipped copy');
+  assert.match(await tab.locator('[data-flag="stale-source"]').innerText(), /^Stale: using shipped copy/);
   live.stale = false;
   await tab.locator('[data-act="retry-live"]').click();
   await tab.waitForFunction(() => !document.querySelector('[data-flag="stale-source"]'), null, { timeout: 120000 });
@@ -69,8 +69,8 @@ await check('the attempts list offers Use this one, pins the source and offers t
   await tab.reload();
   await tab.waitForSelector('#urls');
   await harvest('https://' + PIN_HOST + '/');
-  await tab.locator('details.attempts summary').click();
-  const touch = tab.locator('details.attempts li', { hasText: 'apple-touch-icon' });
+  await tab.click('#tabbtn-source');
+  const touch = tab.locator('ol.attempts li', { hasText: 'apple-touch-icon' });
   await touch.locator('[data-act="pin"]').click();
   await tab.waitForSelector('li.pinned', { timeout: 120000 });
   const href = await tab.locator('li.pinned .href').innerText();

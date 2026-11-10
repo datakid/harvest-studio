@@ -88,6 +88,7 @@ await check('T5.2 a pasted address adds one ghost tile within 300 ms and the old
     }).observe(document.querySelector('.gallery'), { childList: true });
     window.__clickAt = 0;
   });
+  await page.click('#add-btn');
   await page.fill('#add-urls', 'https://added.example.com/');
   await page.evaluate(() => { window.__clickAt = performance.now(); });
   await page.click('#add-go');
@@ -117,10 +118,11 @@ await check('T5.3 a json with two new entries and one already present asks and S
 
 await check('T5.4 remove a tile, press Undo, and it comes back with the same tint and lock', async () => {
   await page.locator('.cell[data-key="' + first5[1] + '"]').click();
-  await page.getByRole('button', { name: 'Keep this colour' }).click();
+  await page.locator('#keep-colour').check();
   const was = (await recs(page)).find((r) => r.key === first5[1]);
   assert.equal(was.locked, true);
   const count = (await recs(page)).length;
+  await page.click('#tabbtn-app');
   await page.locator('[data-act="remove"]').click();
   await page.waitForFunction((n) => document.querySelectorAll('.cell').length === n - 1, count);
   await page.locator('[data-act="toast-action"]').click();
@@ -130,7 +132,10 @@ await check('T5.4 remove a tile, press Undo, and it comes back with the same tin
 });
 
 await check('T5.5 a locked tint stays put when a tile of the same colour is added in separate mode, and the new tile moves', async () => {
-  await page.getByRole('radio', { name: 'Separate' }).click();
+  await page.click('#tabbtn-look').catch(() => {});
+  await page.click('#colours-btn');
+  await page.locator('#mode-separate').click();
+  await page.keyboard.press('Escape');
   const lockedBefore = (await recs(page)).find((r) => r.key === first5[1]);
   await page.setInputFiles('#add-pick-files', [{ name: 'twin.png', mimeType: 'image/png', buffer: png(first5[1]) }]);
   const n = (await recs(page)).length + 1;
@@ -145,7 +150,8 @@ await check('T5.5 a locked tint stays put when a tile of the same colour is adde
 await check('T5.6 reload and open the project from Recent work: same keys, tints, locks and pins', async () => {
   await page.evaluate(() => { window.__studio.state.pins = { [[...window.__studio.state.records.keys()][0]]: { href: 'https://pinned.example.com/icon.svg' } }; });
   await page.locator('.cell').first().click();
-  await page.getByRole('button', { name: 'Keep this colour' }).click();
+  await page.click('#tabbtn-look');
+  await page.locator('#keep-colour').check();
   await page.waitForFunction(() => window.__studio.state.unsaved === false && window.__studio.saved > 0, null, { timeout: 15000 });
   const was = await recs(page);
   const pins = await page.evaluate(() => window.__studio.state.pins);
@@ -180,9 +186,9 @@ await check('T5.7 dropping a file on the work view shows the overlay, adds the f
 
 await check('T5.8 the export zip after the additions holds every tile and the manifest lists every key', async () => {
   const keys = (await recs(page)).map((r) => r.key);
-  assert.match(await page.locator('#export-btn').innerText(), new RegExp('\\(' + keys.length + '\\)'));
+  assert.match(await page.locator('#export-btn').innerText(), new RegExp('· ' + keys.length + '$'));
   await page.locator('#export-btn').click();
-  await page.waitForSelector('dialog .gate', { timeout: 120000 });
+  await page.waitForSelector('#export-sheet .gate', { timeout: 120000 });
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .zip' }).click()]);
   const zip = unzipSync(new Uint8Array(fs.readFileSync(await dl.path())));
   const manifest = JSON.parse(Buffer.from(zip['icons/manifest.v2.json']).toString('utf8'));
@@ -194,6 +200,8 @@ await check('T5.9 the add bar wraps on a phone without horizontal scroll', async
   const { page: phone } = await open({ width: 390, height: 844 });
   await harvestFiles(phone, first5.slice(0, 2));
   assert.ok(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await phone.click('#add-btn');
+  await phone.waitForSelector('#add-bar');
   const small = await phone.$$eval('#add-bar .btn, #add-bar input[type="text"]', (els) => els.filter((e) => e.offsetParent && e.getBoundingClientRect().height < 40).length);
   assert.equal(small, 0);
   await shot(phone, 'add-mobile');
@@ -202,9 +210,14 @@ await check('T5.9 the add bar wraps on a phone without horizontal scroll', async
 await check('T5.10 the Arabic interface mirrors the add bar and the dialogs', async () => {
   const { page: ar } = await open();
   await harvestFiles(ar, first5.slice(0, 2));
-  await ar.getByRole('button', { name: 'العربية' }).click();
+  await ar.click('#more-btn');
+  await ar.getByRole('menuitem', { name: 'Settings' }).click();
+  await ar.locator('#set-lang').getByRole('radio', { name: 'العربية' }).click();
+  await ar.keyboard.press('Escape');
   assert.equal(await ar.evaluate(() => document.documentElement.dir), 'rtl');
   assert.ok(await ar.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+  await ar.click('#add-btn');
+  await ar.waitForSelector('#add-urls');
   const rtl = await ar.evaluate(() => {
     const input = document.getElementById('add-urls').getBoundingClientRect();
     const go = document.getElementById('add-go').getBoundingClientRect();
@@ -223,11 +236,13 @@ await check('T5.11 Start over asks while changes are unsaved, Cancel keeps the w
   await p2.waitForFunction(() => window.__studio.state.unsaved === false && window.__studio.saved > 0, null, { timeout: 15000 });
   await p2.setInputFiles('#add-pick-files', [file(names[6])]);
   await settled(p2, 3);
-  await p2.getByRole('button', { name: /Start over/ }).click();
+  await p2.click('#more-btn');
+  await p2.getByRole('menuitem', { name: /Start over/ }).click();
   await p2.waitForSelector('#startover-dialog[open]');
   await p2.click('#startover-cancel');
   assert.equal(await p2.locator('.gallery .cell').count(), 3);
-  await p2.getByRole('button', { name: /Start over/ }).click();
+  await p2.click('#more-btn');
+  await p2.getByRole('menuitem', { name: /Start over/ }).click();
   await p2.click('#startover-ok');
   await p2.waitForSelector('.recent');
   assert.match(await p2.locator('.recent').first().innerText(), /3 icons/);

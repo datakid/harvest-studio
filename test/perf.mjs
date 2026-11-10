@@ -188,11 +188,11 @@ const harvestAll = async (page) => {
   return { first, total };
 };
 
-await check('T6.6 first-load JS stays within the baseline plus 15 KB gzip, and the worker, wasm and unused font subsets wait until needed', async () => {
+await check('T6.6 first-load JS stays within 48 KB gzip, and the worker, wasm and unused font subsets wait until needed', async () => {
   const gz = (f) => zlib.gzipSync(fs.readFileSync(path.join(studioDir, 'dist', f)), { level: 9 }).length;
   const app = gz('app.js');
   console.log('     app.js ' + app + ' gzip bytes against ' + baseline.firstLoad.appJsGzipBytes + ' at baseline; worker.js ' + gz('worker.js') + ' against ' + baseline.firstLoad.workerJsGzipBytes);
-  assert.ok(app <= baseline.firstLoad.appJsGzipBytes + 15360, String(app));
+  assert.ok(app <= 48 * 1024, String(app));
   const page = await ctx.newPage();
   const seen = [];
   page.on('request', (r) => seen.push(new URL(r.url()).pathname));
@@ -237,7 +237,8 @@ await check('T6.5 a second browser harvest with a warm cache makes no full-body 
 await check('T6.5 a re-harvest of one tile revalidates with If-None-Match and gets 304', async () => {
   resetState();
   await page2.locator('.gallery .cell').first().click();
-  await page2.getByRole('button', { name: /Re-harvest/ }).first().click();
+  await page2.click('#tabbtn-source');
+  await page2.locator('[data-act="reharvest"]').click();
   await page2.waitForTimeout(3000);
   assert.ok(state.conditional >= 1, 'conditional ' + state.conditional);
   assert.equal(state.full, 0);

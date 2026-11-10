@@ -48,9 +48,9 @@ await check('roundCorners rounds a full square to the token radius and leaves th
   assert.ok(alpha(Math.round(r * (1 - Math.SQRT1_2)) - 2, Math.round(r * (1 - Math.SQRT1_2)) - 2) < 40);
 });
 
-await check('the token radius matches src/tokens.css', async () => {
+await check('the token radius matches src/ui/tokens.css', async () => {
   const fs = await import('node:fs/promises');
-  const css = await fs.readFile(new URL('../src/tokens.css', import.meta.url), 'utf8');
+  const css = await fs.readFile(new URL('../src/ui/tokens.css', import.meta.url), 'utf8');
   assert.equal(Number(/--r-icon:\s*([.\d]+)/.exec(css)[1]), CORNER_RATIO);
 });
 

@@ -7,6 +7,24 @@ A standalone web app that harvests favicons for apps, traces glyphs, colours the
 
 The work view is additive: you can keep adding sites, files, folders or whole sets to a harvest that is already on screen (see [Adding to a set](#adding-to-a-set)). A reusable GitHub workflow re-harvests the icons of the launcher and Fihrist repositories whenever their JSON changes (see [Automatic updates](#automatic-updates)).
 
+## Using the Studio
+
+**Start.** Paste addresses, drop images or a folder, or load a JSON file. The launcher `links.json` and the Fihrist file are recognised on their own and show as a chip; any other JSON asks which fields hold the name, address and icon. The Launcher, Fihrist and Both buttons harvest the shipped sets. Pick the launcher format (v3 or v4) once; it is remembered.
+
+**Work view.** The left rail searches and filters (groups, needs review, kept, adjusted, image only, left out) and sorts. The middle is the canvas: click a tile to select it, Shift-click for a range, Ctrl or Cmd-click to add or remove one, drag on empty space to select with a box. Tile size, vivid or muted, light or dark, corner shape and Compare (the source favicon beside each tile) sit above the canvas. The right side is the inspector for the selection:
+
+- **Look**: the previews, the tile colour (hex, from the icon, fine tune in OKLCH, keep this colour) and the per-icon adjustments: render as glyph or image, size, position, background, stroke weight, two-tone and invert (v4), and Leave out of the set.
+- **Source**: what was found, every source tried, Use this one, Unpin, Copy pin JSON, Re-harvest, Replace image.
+- **App**: name, key, address and group, and the favicon pack for that app.
+
+With two or more tiles selected a bar offers Colour, Keep, Size, Render, Re-harvest, Leave out and Remove for all of them at once. The **Colours** button opens the set-wide modes (Separate, Follow, Family, Palette, One colour, Original) with their palette editor. **Export** opens a sheet with the Launcher set (with the budget gate and the Polish checklist), Per-app packs for the selection, the visible tiles or everything, and Custom formats and sizes. Settings (theme, language, defaults, fetch proxy) are in the menu beside Export.
+
+**Undo and redo** cover colour, adjustment, name and removal changes, a whole batch counting as one step (Ctrl or Cmd+Z, add Shift to redo). Toasts appear only for undoable actions and for errors; everything else is announced to screen readers.
+
+**Keyboard.** `/` search, arrow keys move between tiles, Enter inspects, Space toggles, Ctrl or Cmd+A selects all, Esc clears, `K` keeps the colour, `R` re-harvests, Delete removes, `[` and `]` change size, Alt with the arrow keys nudges (Shift for larger steps), `E` exports, `?` lists them all.
+
+The interface is English and Arabic (right to left) with logical layout properties throughout, and it adapts to a phone: the rail becomes a drawer and the inspector a bottom sheet.
+
 ## Run it
 
 ```
@@ -63,7 +81,7 @@ For each site the page head is read and icons are tried in this order, stopping 
 - An address reached by two routes is fetched once.
 - **Favicon pack:** `favicon.ico` holds three PNG frames at 16, 32 and 48 pixels, each scaled from the full-size original. A custom `.ico` export never adds frames larger than its source (a 32 px source gives 16 and 32).
 - The font for SVG text is loaded only when an SVG contains `<text>`. It is `fonts/readex-pro-text.ttf` in the build (100 KB, from `@expo-google-fonts/readex-pro`, because the renderer cannot read the Studio's woff2 files); the built site grew by 100,285 bytes and `worker.js` by 461 bytes.
-- Every try is kept in the report as `attempts`, in order: `{ type, href, status, reason }` with status `used`, `failed`, `rejected` (decoded but unusable, for example a single flat colour) or `blocked`. `error` stays the short summary. The Studio shows the list under "Everything tried" in the item panel, and saves it with the project.
+- Every try is kept in the report as `attempts`, in order: `{ type, href, status, reason }` with status `used`, `failed`, `rejected` (decoded but unusable, for example a single flat colour) or `blocked`. `error` stays the short summary. The Studio shows the list in the Source tab of the inspector, and saves it with the project.
 
 ## Colours
 
@@ -79,7 +97,7 @@ The contrast guardrail checks the launcher's vivid tile (white glyph on the clam
 
 ## Source pins
 
-An icon can be pinned to one source. `config/source-pins.json` maps a key to an address, and the Studio shows every source it tried under "Everything tried", with "Use this one", "Unpin" and "Copy pin JSON". A pinned source is recorded as `source.type: "pinned"`. A photographic or JPEG `apple-touch-icon` yields to a declared SVG that renders with at least two chromatic colours.
+An icon can be pinned to one source. `config/source-pins.json` maps a key to an address, and the Source tab shows every source it tried, with "Use this one", "Unpin" and "Copy pin JSON". A pinned source is recorded as `source.type: "pinned"`. A photographic or JPEG `apple-touch-icon` yields to a declared SVG that renders with at least two chromatic colours.
 
 ## Pages are read only up to the head
 
@@ -112,11 +130,11 @@ Set `STUDIO_TOKEN` (and optionally `STUDIO_ORIGIN` to lock CORS to your Studio a
 
 ## Adding to a set
 
-The work view has an add bar: type or paste one or many addresses, or use Add files, Add folder, Add JSON, and the Launcher, Fihrist and Both buttons (they add only the entries that are not there yet). You can also drop files anywhere on the view, or paste addresses with Ctrl or Cmd+V when no field has focus. Ghost tiles with the names appear at once and fill in as each site finishes, and the tiles already on screen are not rebuilt.
+The Add button in the top bar opens a panel: type or paste one or many addresses, or use Files, Folder, JSON, and the Launcher, Fihrist and Both buttons (they add only the entries that are not there yet). You can also drop files anywhere on the view, or paste addresses with Ctrl or Cmd+V when no field has focus. Ghost tiles with the names appear at once and fill in as each site finishes, and the tiles already on screen are not rebuilt.
 
 - **Same key:** from the same site (or a file with no address) the Studio asks once for the whole batch: update the existing tile, keep both, or skip. A key from a different site is added with a `-2` suffix and a notice says so. Updating keeps a kept colour.
 - **Colours:** new tiles are coloured against every tile already there, which stay where they are.
-- **Each tile** has Re-harvest, Use another source, Replace image, Keep this colour and Remove (with Undo for 8 seconds) in the inspector.
+- **Each tile** has Re-harvest, Use another source and Replace image in the Source tab, Keep this colour in the Look tab and Remove in the App tab (with Undo for 8 seconds).
 - **Saving:** additions, removals and kept colours are saved to the project automatically. Start over asks first only while there are unsaved changes.
 
 ## Performance
@@ -126,7 +144,7 @@ Measured on a 2-CPU machine against `docs/baseline.json`, and checked by `test/p
 - Requests go through one limiter: 8 at a time, 2 per host, first in first out. The first tile of a 34-site harvest shows in about one second with 300 ms of proxy latency, and the whole harvest takes about six seconds. No main-thread task passes 200 ms.
 - The worker caches fetched pages and icons in IndexedDB (`hs:cache`, 24 hours, 50 MB, least recently used first) and re-harvest revalidates with `If-None-Match`. A second harvest of the same set makes no upstream requests.
 - When the pixels of an icon are unchanged, its colour analysis and trace are reused, with byte-identical output.
-- The worker, the wasm codecs and the font subsets load only when needed. `app.js` is 34.9 KB gzip, 8.3 KB more than v0.1.
+- The worker, the wasm codecs and the font subsets load only when needed. `app.js` is 46.8 KB gzip against a budget of 48 KB, and `test/perf.mjs` enforces the budget.
 - The CLI harvest of the 34 fixtures takes about 2.3 seconds, 1.24 times the v0.1 time: glyphs are now traced as up to eight candidates and heavy strokes are traced again, which is what makes the icons correct.
 
 ## Automatic updates
@@ -162,7 +180,7 @@ Push this folder as its own repository and import it in Vercel with the default 
 ## Layout
 
 - `core/`: the portable pipeline (ESM, runs in Node 22 and a Web Worker)
-- `src/`: the app (vanilla JS, built with esbuild), `worker.js` runs the codecs
+- `src/`: the app (vanilla JS, built with esbuild): `store.js` holds state, history and the event bus, `actions/` change it, `views/` and `ui/` draw it, `worker.js` runs the codecs
 - `cli/`: the harvest entry point, `diff-links.mjs` and the workflow helpers
 - `.github/workflows/`: the reusable icon workflow
 - `docs/`: the baseline numbers, the launcher v4 contract, the Netlify note, caller workflows and screenshots
@@ -170,7 +188,7 @@ Push this folder as its own repository and import it in Vercel with the default 
 - `config/`: overrides, extras and the `manifest.v2.json` schema (replace it with the launcher's own once that lands)
 - `test/`: suites and the 33 fixtures
 
-`src/tokens.css` is a snapshot of the launcher's corner tokens, taken from launcher commit `25298f3`. The vivid and muted tile rules in `src/colour.js` follow the same commit.
+`src/ui/tokens.css` is a snapshot of the launcher's corner tokens, taken from launcher commit `25298f3`. The vivid and muted tile rules in `src/colour.js` follow the same commit.
 
 ## Manifest notes
 

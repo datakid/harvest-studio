@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -14,7 +15,7 @@ const base = (f) => f.split('/').pop();
 const bundle = [path.join(sampleDir, 'manifest.v2.json'), ...[manifest.atlas, manifest.glyphAtlas, manifest.glyphSprite].map((x) => path.join(sampleDir, base(x.file)))];
 
 const server = await serve(4182);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -49,7 +50,8 @@ const page = await fresh();
 await harvest(page);
 
 await check('palette mode spreads every preset colour across the icons', async () => {
-  await page.getByRole('radio', { name: 'Palette' }).click();
+  await page.click('#colours-btn');
+  await page.locator('#mode-palette').click();
   await page.getByRole('button', { name: 'Ocean' }).click();
   const ocean = core.PRESETS.find((p) => p.id === 'ocean').colors;
   const hues = ocean.map((c) => core.hexToLch(c)[2]);
@@ -65,7 +67,7 @@ await check('palette mode spreads every preset colour across the icons', async (
 });
 
 await check('palette edits: harmony, add, remove and the minimum of one colour', async () => {
-  await page.locator('select[aria-label="Build from a colour"]').selectOption('triad');
+  await page.locator('#harmony-kind').selectOption('triad');
   assert.equal(await page.locator('.pal-sw').count(), 3);
   await page.locator('.pal-sw button').first().click();
   assert.equal(await page.locator('.pal-sw').count(), 2);
@@ -80,7 +82,7 @@ await check('palette edits: harmony, add, remove and the minimum of one colour',
 });
 
 await check('saved palettes persist across reloads and can be deleted', async () => {
-  await page.getByPlaceholder('Palette name').fill('Mine');
+  await page.locator('#palette-name').fill('Mine');
   await page.getByRole('button', { name: 'Save palette' }).click();
   await page.getByRole('button', { name: 'Ocean' }).click();
   await page.waitForTimeout(100);
@@ -97,9 +99,9 @@ await check('saved palettes persist across reloads and can be deleted', async ()
 });
 
 await check('palette export is locked and passes the gate', async () => {
-  await page.getByRole('button', { name: 'Export' }).click();
-  await page.waitForSelector('.gate');
-  assert.ok(await page.getByText('All checks pass').count() >= 0);
+  await page.keyboard.press('Escape');
+  await page.click('#export-btn');
+  await page.waitForSelector('#export-sheet .gate');
   const zip = await download(page);
   const m = JSON.parse(core.stableStringify ? new TextDecoder().decode(zip['icons/manifest.v2.json']) : '{}');
   const entries = Object.values(m.icons).filter((e) => e.tint);
@@ -112,7 +114,7 @@ await check('an existing set opens from its manifest and atlas with colours inta
   const p = await fresh();
   await p.setInputFiles('#pick-files', bundle);
   await p.waitForSelector('#manifest-panel');
-  assert.match(await p.locator('#manifest-panel').innerText(), /33 icons/);
+  assert.match(await p.locator('#manifest-panel').innerText(), /33/);
   assert.equal(await p.locator('#open-set').isEnabled(), true);
   await p.click('#open-set');
   await p.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
@@ -121,8 +123,8 @@ await check('an existing set opens from its manifest and atlas with colours inta
   for (const [key, e] of Object.entries(manifest.icons)) assert.deepEqual(got[key] || null, e.tint || null, key);
   const seed = await p.evaluate(() => window.__studio.state.seed);
   assert.equal(seed, '1f2e3d4c');
-  await p.getByRole('button', { name: 'Export' }).click();
-  await p.waitForSelector('.gate');
+  await p.click('#export-btn');
+  await p.waitForSelector('#export-sheet .gate');
   const zip = await download(p);
   assert.ok(Object.keys(zip).some((n) => /manifest\.v2\.json$/.test(n)));
   await p.close();
@@ -143,11 +145,8 @@ await check('a manifest without its atlas asks for the file instead of failing',
 await check('work autosaves as a project that reopens after a reload', async () => {
   const key = await page.evaluate(() => window.__studio.state.order[3]);
   await page.locator('.cell[data-key="' + key + '"]').click();
-  await page.locator('.sel-head ~ .colour-row input[type=color]').evaluate((el) => {
-    el.value = '#3a5bd0';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  await page.locator('#colour-hex').fill('#3a5bd0');
+  await page.locator('#colour-hex').dispatchEvent('change');
   await page.fill('.proj-name', 'Launcher set');
   await page.waitForFunction(() => window.__studio.saved >= 1, null, { timeout: 15000 });
   await page.waitForTimeout(1200);
@@ -162,12 +161,15 @@ await check('work autosaves as a project that reopens after a reload', async () 
   const now = (await recs(reloaded)).find((r) => r.key === key);
   assert.deepEqual(now.tint, tintBefore);
   assert.equal(now.locked, true);
-  await reloaded.getByRole('button', { name: 'Export' }).click();
-  await reloaded.waitForSelector('.gate');
+  await reloaded.click('#export-btn');
+  await reloaded.waitForSelector('#export-sheet .gate');
   const zip = await download(reloaded);
   assert.ok(Object.keys(zip).some((n) => /atlas\..*\.webp$/.test(n)));
   await reloaded.keyboard.press('Escape');
-  await reloaded.getByRole('button', { name: /Start over/ }).click();
+  await reloaded.click('#more-btn');
+  await reloaded.getByRole('menuitem', { name: /Start over/ }).click();
+  await reloaded.waitForTimeout(300);
+  if (await reloaded.locator('#startover-ok').count()) await reloaded.click('#startover-ok');
   const before = await reloaded.locator('.recent').count();
   await reloaded.getByRole('button', { name: 'Delete Launcher set' }).click();
   await reloaded.waitForTimeout(300);

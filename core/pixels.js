@@ -151,7 +151,7 @@ export const BG_MIN_AREA = 0.18;
 export const BG_MIN_OPAQUE = 0.06;
 export const BG_SAFE = 104 / 128;
 
-export const removeFlatBackground = async (img) => {
+export const removeFlatBackground = async (img, { force = false } = {}) => {
   const { width: w, height: h, data } = img;
   const n = w * h;
   if (w < 8 || h < 8) return img;
@@ -184,7 +184,7 @@ export const removeFlatBackground = async (img) => {
   const chroma = Math.hypot(bg[1], bg[2]);
   const nearWhite = bg[0] > 0.93 && chroma < 0.04;
   const nearBlack = bg[0] < 0.2 && chroma < 0.03;
-  if (!nearWhite && !nearBlack) return img;
+  if (!force && !nearWhite && !nearBlack) return img;
   const cut = new Uint8Array(n);
   const stack = [...corners];
   let filled = 0;
@@ -199,7 +199,7 @@ export const removeFlatBackground = async (img) => {
     if (p >= w) stack.push(p - w);
     if (p < n - w) stack.push(p + w);
   }
-  if (filled < n * BG_MIN_AREA) return img;
+  if (filled < (force ? 1 : n * BG_MIN_AREA)) return img;
   const out = copyImage(img);
   for (let p = 0; p < n; p++) {
     if (cut[p]) {
@@ -315,15 +315,20 @@ export const hasAlphaChannel = (bytes, ext, img) => {
   return false;
 };
 
-export const normalize = async (bytes, ext) => {
+export const normalizeDecoded = async (image, { opaque = false, background = 'auto' } = {}) => {
+  const working = Math.max(image.width, image.height) > 512 ? await resizeTo(image, 512, 512) : image;
+  const cleaned = background === 'keep' ? working : await removeFlatBackground(working, { force: background === 'remove' });
+  let img = await resizeTo(cleaned, 192, 192);
+  if (opaque && cleaned === working && background !== 'keep') img = await matteCorners(img);
+  return img;
+};
+
+export const normalize = async (bytes, ext, { background = 'auto' } = {}) => {
   const decoded = await decodeImage(bytes, ext);
   const opaque = ext === 'svg' ? false : !hasAlphaChannel(bytes, ext, decoded.image);
-  const working = Math.max(decoded.image.width, decoded.image.height) > 512 ? await resizeTo(decoded.image, 512, 512) : decoded.image;
-  const cleaned = await removeFlatBackground(working);
-  let img = await resizeTo(cleaned, 192, 192);
-  if (opaque && cleaned === working) img = await matteCorners(img);
+  const img = await normalizeDecoded(decoded.image, { opaque, background });
   const original = decoded.image.width <= 1024 && decoded.image.height <= 1024 ? decoded.image : null;
-  return { img, srcWidth: decoded.srcWidth, original, ratio: decoded.image.width / decoded.image.height };
+  return { img, srcWidth: decoded.srcWidth, original, ratio: decoded.image.width / decoded.image.height, opaque };
 };
 
 export const gate = (img, srcWidth) => {

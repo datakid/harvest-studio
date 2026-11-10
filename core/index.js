@@ -19,3 +19,4 @@ export * from './head.js';
 export * from './protection.js';
 export * from './polish.js';
 export * from './report.js';
+export * from './adjust.js';

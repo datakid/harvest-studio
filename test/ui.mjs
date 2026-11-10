@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +28,7 @@ const proxy = createHandler({
   env: { STUDIO_TOKEN: 'ui-token' }
 });
 const server = await serve(4181, proxy);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).map((d) => '/opt/pw-browsers/' + d + '/chrome-linux/chrome').find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
 const open = async (viewport, scheme = 'light', before = null) => {
@@ -68,23 +69,27 @@ await check('no long animation frame while tiles bloom', async () => {
 });
 
 await check('mode switch to one colour paints every tile with one hue family', async () => {
-  await page.getByRole('radio', { name: 'One colour' }).click();
-  await page.locator('.sw').nth(5).click();
+  await page.click('#colours-btn');
+  await page.locator('#mode-mono').click();
+  await page.locator('#colour-pop .swatches .swatch').nth(5).click();
   const colours = await page.$$eval('.gallery .tile-art', (els) => els.map((e) => getComputedStyle(e).getPropertyValue('--tile').trim()));
   assert.ok(colours.length === files.length);
   assert.ok(new Set(colours).size > 1, 'variation should keep tiles distinct');
+  await page.keyboard.press('Escape');
 });
 await page.waitForTimeout(300);
 await shot(page, 'mono-light');
 
 await check('per-icon colour change locks the icon', async () => {
-  await page.getByRole('radio', { name: 'Separate' }).click();
+  await page.click('#colours-btn');
+  await page.locator('#mode-separate').click();
+  await page.keyboard.press('Escape');
   await page.locator('.cell').first().click();
-  await page.locator('.inspector .picker input').fill('#12b886');
-  await page.locator('.inspector .picker input').dispatchEvent('change');
-  assert.ok(await page.getByText('Colour kept').count());
+  await page.locator('#colour-hex').fill('#12b886');
+  await page.locator('#colour-hex').dispatchEvent('change');
+  assert.ok(await page.locator('#keep-colour').isChecked());
   await page.getByRole('button', { name: 'Reset colour' }).click();
-  assert.equal(await page.getByText('Colour kept').count(), 0);
+  assert.ok(!(await page.locator('#keep-colour').isChecked()));
 });
 
 await check('keyboard arrows move the selection', async () => {
@@ -95,8 +100,8 @@ await check('keyboard arrows move the selection', async () => {
 });
 
 await check('launcher export passes the gate and zips the contract files', async () => {
-  await page.getByRole('button', { name: 'Export' }).click();
-  await page.waitForSelector('dialog .gate', { timeout: 120000 });
+  await page.click('#export-btn');
+  await page.waitForSelector('#export-sheet .gate', { timeout: 120000 });
   await shot(page, 'export-launcher');
   assert.ok(await page.getByText('Within budget').count());
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .zip' }).click()]);
@@ -122,7 +127,7 @@ await check('launcher export passes the gate and zips the contract files', async
 
 await check('browser worker export matches the Node run (manifest and atlas pixels)', async () => {
   await page.getByRole('radio', { name: 'Launcher set' }).click();
-  await page.waitForSelector('dialog .gate');
+  await page.waitForSelector('#export-sheet .gate');
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .zip' }).click()]);
   const zip = unzipSync(new Uint8Array(fs.readFileSync(await dl.path())));
   const targets = files.map((f) => {
@@ -152,17 +157,22 @@ await check('browser worker export matches the Node run (manifest and atlas pixe
 });
 
 await check('favicon pack zips every size and the head tags', async () => {
-  await page.getByRole('radio', { name: 'Favicon pack' }).click();
+  await page.getByRole('radio', { name: 'Per-app packs' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download .zip' }).click()]);
   const names = Object.keys(unzipSync(new Uint8Array(fs.readFileSync(await dl.path()))));
-  for (const n of ['favicon.ico', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'site.webmanifest', 'head.html']) assert.ok(names.includes(n), n);
+  for (const n of ['favicon.ico', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'site.webmanifest', 'head.html']) assert.ok(names.some((x) => x.endsWith('/' + n)), n);
+  assert.equal(new Set(names.map((x) => x.split('/')[0])).size, 1);
   await shot(page, 'export-pack');
   await page.keyboard.press('Escape');
 });
 
 await check('dark theme and arabic layout render without overflow', async () => {
-  await page.getByRole('radio', { name: 'Dark' }).click();
-  await page.getByRole('button', { name: 'العربية' }).click();
+  await page.keyboard.press('Escape');
+  await page.click('#more-btn');
+  await page.getByRole('menuitem', { name: 'Settings' }).click();
+  await page.locator('#set-theme').getByRole('radio', { name: 'Dark' }).click();
+  await page.locator('#set-lang').getByRole('radio', { name: 'العربية' }).click();
+  await page.keyboard.press('Escape');
   assert.equal(await page.evaluate(() => document.documentElement.dir), 'rtl');
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   await shot(page, 'work-dark-ar');
@@ -173,7 +183,7 @@ await check('arabic mode: language is declared, names choose their own direction
   const dirs = await page.$$eval('.cell .name', (els) => els.map((e) => [e.getAttribute('dir'), getComputedStyle(e).direction]));
   assert.ok(dirs.length > 0);
   for (const [attr, computed] of dirs) assert.deepEqual([attr, computed], ['auto', 'ltr']);
-  const css = fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'app.css'), 'utf8') + fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', 'tokens.css'), 'utf8');
+  const css = ['ui/tokens.css', 'ui/components.css', 'views/views.css'].map((f) => fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', f), 'utf8')).join('\n');
   const physical = css.split('\n').filter((l) => /(margin|padding|border)-(left|right)|(^|[\s;{])(left|right)\s*:|float\s*:|text-align\s*:\s*(left|right)/.test(l) && !/^pre\.code/.test(l));
   assert.deepEqual(physical, []);
 });
@@ -189,19 +199,19 @@ await check('a single site address is harvested through the proxy', async () => 
   await single.click('#go');
   await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   assert.equal(await single.locator('.gallery .cell').count(), 1);
-  assert.ok(await single.getByText('Found').count());
-  assert.ok(await single.getByText(/png http/).count());
   await single.locator('.gallery .cell').first().click();
-  const tried = single.locator('.inspector details.attempts');
+  assert.ok(await single.locator('.insp-head .pill', { hasText: 'Found' }).count());
+  await single.click('#tabbtn-source');
+  assert.ok(await single.getByText(/png http/).count());
+  const tried = single.locator('.inspector ol.attempts');
   assert.equal(await tried.count(), 1);
-  await tried.locator('summary').click();
   const row = await tried.locator('li').first().innerText();
-  assert.ok(/used/.test(row) && /png/.test(row) && /demo\.example\.com\/icon\.png/.test(row), row);
-  await single.getByRole('button', { name: 'Export' }).click();
-  await single.getByRole('radio', { name: 'Favicon pack' }).click();
+  assert.ok(/used/i.test(row) && /png/.test(row) && /demo\.example\.com\/icon\.png/.test(row), row);
+  await single.click('#export-btn');
+  await single.getByRole('radio', { name: 'Per-app packs' }).click();
   const [dl] = await Promise.all([single.waitForEvent('download'), single.getByRole('button', { name: 'Download .zip' }).click()]);
   const names = Object.keys(unzipSync(new Uint8Array(fs.readFileSync(await dl.path()))));
-  assert.ok(names.includes('favicon.ico') && names.includes('icon-512.png'));
+  assert.ok(names.some((n) => n.endsWith('/favicon.ico')) && names.some((n) => n.endsWith('/icon-512.png')));
 });
 await check('a text favicon is drawn in the browser worker with the bundled font', async () => {
   await single.keyboard.press('Escape');
@@ -219,6 +229,7 @@ await check('a text favicon is drawn in the browser worker with the bundled font
   await font;
   await single.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await single.locator('.gallery .cell').first().click();
+  await single.click('#tabbtn-source');
   assert.ok(await single.getByText(/svg http/).count());
 });
 await check('a wrong proxy token explains itself', async () => {
@@ -236,15 +247,15 @@ await check('a wrong proxy token explains itself', async () => {
 await check('a json file shows what was found and lets the fields be changed', async () => {
   await single.reload();
   await single.setInputFiles('#pick-files', [path.join(fixturesDir, '..', 'links.json')]);
-  await single.waitForSelector('.scan');
-  assert.ok(await single.getByText(/Found 34 in launcher catalogue/).count());
-  assert.ok(await single.getByRole('button', { name: 'Harvest 34 icons' }).count());
+  await single.waitForSelector('.chip.json');
+  assert.match(await single.locator('.chip.json').innerText(), /34.*launcher/i);
+  assert.ok(await single.getByRole('button', { name: 'Harvest 34' }).count());
   await single.reload();
   await single.setInputFiles('#pick-files', [{ name: 'tools.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ tools: [{ name: 'A', homepage: 'https://a.test', logo: 'https://a.test/l.png' }, { name: 'B', homepage: 'https://b.test', logo: 'https://b.test/l.png' }] })) }]);
   await single.waitForSelector('.scan select');
-  assert.ok(await single.getByText(/Found 2 in tools/).count());
+  assert.match(await single.locator('.scan-head').innerText(), /tools\.json · 2/);
   await single.locator('.scan select').nth(1).selectOption('');
-  assert.ok(await single.getByText(/Found 2 in tools/).count());
+  assert.match(await single.locator('.scan-head').innerText(), /tools\.json · 2/);
 });
 
 await check('names given as language objects follow a language picker in the import panel', async () => {
@@ -266,7 +277,7 @@ await check('a site that cannot be reached without a proxy is named in a notice 
   await noProxy.locator('#urls').fill('demo.example.com');
   await noProxy.click('#go');
   await noProxy.waitForSelector('.toast', { timeout: 120000 });
-  assert.match(await noProxy.locator('.toast').first().innerText(), /1 not reached: no proxy set/);
+  assert.match(await noProxy.locator('.toast').first().innerText(), /1 not reached/);
   assert.equal(await noProxy.locator('.gallery .cell').count(), 3);
 });
 

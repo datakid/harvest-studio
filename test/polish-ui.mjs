@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { createHandler } from '../api/fetch.js';
 
 const shots = process.env.SHOTS || null;
 const server = await serve(4203, createHandler({ resolve: async () => [{ address: '93.184.216.34', family: 4 }], request: async () => ({ status: 404, headers: {}, body: (await import('node:stream')).Readable.from([Buffer.from('')]), destroy() {} }), env: {} }));
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const errors = [];
 
@@ -34,18 +35,24 @@ const shot = async (page, name, sel) => {
 const light = await open('light');
 
 await check('the shipped catalogue opens in separate mode with 0 similar pairs in the toolbar', async () => {
-  assert.equal(await light.getByRole('radio', { name: 'Separate' }).getAttribute('aria-checked'), 'true');
+  await light.click('#colours-btn');
+  assert.equal(await light.locator('#mode-separate').getAttribute('aria-checked'), 'true');
+  await light.keyboard.press('Escape');
   assert.equal(await light.locator('#pairs').getAttribute('data-pairs'), '0');
   assert.equal(await light.locator('#pairs').innerText(), 'Similar pairs: 0');
 });
 
 await check('follow mode shows the old look-alikes in the counter and separate clears it again', async () => {
-  await light.getByRole('radio', { name: 'Follow' }).click();
+  await light.click('#colours-btn');
+  await light.locator('#mode-follow').click();
+  await light.keyboard.press('Escape');
   await light.waitForTimeout(300);
   const follow = Number(await light.locator('#pairs').getAttribute('data-pairs'));
   assert.ok(follow > 0, 'follow pairs ' + follow);
   await shot(light, 'strip-before-light', '.gallery');
-  await light.getByRole('radio', { name: 'Separate' }).click();
+  await light.click('#colours-btn');
+  await light.locator('#mode-separate').click();
+  await light.keyboard.press('Escape');
   await light.waitForTimeout(600);
   assert.equal(await light.locator('#pairs').getAttribute('data-pairs'), '0');
   await shot(light, 'strip-after-light', '.gallery');

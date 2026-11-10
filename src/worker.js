@@ -3,6 +3,8 @@ import {
   runHarvest,
   processTarget,
   analyzeIcon,
+  rerender,
+  cleanAdjust,
   traceGlyphAuto,
   tintV4,
   readPrevious,
@@ -155,6 +157,8 @@ const serialise = async (rec) => {
     contrast: rec.contrast || null,
     colour: rec.colour ? { share: rec.colour.share } : null,
     hash: rec.hash || null,
+    hasOriginal: !!rec.original,
+    adjust: rec.adjust || null,
     trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, ...(rec.trace.layers ? { layers: rec.trace.layers } : {}), bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
     favicon,
     glyph
@@ -196,7 +200,7 @@ const runBatch = async (p, post) => {
   shippedPins ||= fetch(wasmBase.replace(/wasm\/$/, '') + 'source-pins.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
   const pins = { ...(await shippedPins), ...(p.pins || {}) };
   const result = await runHarvest(
-    { targets, overrides: {}, pins },
+    { targets, overrides: {}, pins, adjust: p.adjust || {} },
     {
       profile: 'launcher',
       seed: p.seed,
@@ -231,7 +235,7 @@ const runBatch = async (p, post) => {
 const restoreOne = async (r) => {
   const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
   const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
-  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null });
+  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, adjust: r.adjust ? cleanAdjust(r.adjust) : null });
 };
 
 const handlers = {
@@ -306,6 +310,20 @@ const handlers = {
     return { ok: true, count: records.size };
   },
 
+  async adjust(p) {
+    const rec = records.get(p.key);
+    if (!rec) throw new Error('unknown icon');
+    const out = await rerender(rec, p.adjust, { target: p.target === 'v4' ? 'v4' : 'v3' });
+    const next = { ...rec, image: out.image, glyphImage: out.glyphImage, trace: out.trace, adjust: Object.keys(out.adjust).length ? out.adjust : null };
+    next.hash = await pixelHash(out.image);
+    records.set(p.key, next);
+    const payload = await serialise(next);
+    const transfer = [];
+    if (payload.favicon) transfer.push(payload.favicon.buffer);
+    if (payload.glyph) transfer.push(payload.glyph.buffer);
+    return { value: payload, transfer };
+  },
+
   async replace(p) {
     const { key, appId, bytes, fileName } = p;
     const target = { key, appId, bytes, fileName };
@@ -341,7 +359,8 @@ const handlers = {
   },
 
   async build(p) {
-    const patched = [...records.values()].map((r) => ({ ...r, ...(p.patches[r.key] || {}) }));
+    const only = Array.isArray(p.keys) && p.kind !== 'launcher' ? new Set(p.keys) : null;
+    const patched = [...records.values()].map((r) => ({ ...r, ...(p.patches[r.key] || {}) })).filter((r) => (!only || only.has(r.key)) && (p.kind === 'pack' || p.kind === 'packs' || !(r.adjust && r.adjust.exclude)));
     const sorted = patched.sort((a, b) => (a.key < b.key ? -1 : 1));
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
@@ -363,6 +382,15 @@ const handlers = {
       const rec = sorted.find((r) => r.key === p.key) || sorted.find((r) => r.image);
       const pack = await buildFaviconPack(rec, { name: p.name || rec.key, background: p.background || '#ffffff', themeColor: p.themeColor || null });
       return { value: { zip: pack.zip, head: pack.head, files: Object.keys(pack.files) }, transfer: [pack.zip.buffer] };
+    }
+    if (p.kind === 'packs') {
+      const files = {};
+      for (const rec of sorted.filter((r) => r.image)) {
+        const pack = await buildFaviconPack(rec, { name: p.names && p.names[rec.key] ? p.names[rec.key] : rec.key, background: p.background || '#ffffff', themeColor: p.themeColor || null });
+        for (const [name, bytes] of Object.entries(pack.files)) files[rec.key + '/' + name] = bytes;
+      }
+      const zip = zipFiles(files, '');
+      return { value: { zip, files: Object.keys(files) }, transfer: [zip.buffer] };
     }
     const exp = await buildCustomExport(sorted, { formats: p.formats, sizes: p.sizes, quality: p.quality || 90, lossless: !!p.lossless });
     return { value: { zip: exp.zip, files: Object.keys(exp.files) }, transfer: [exp.zip.buffer] };

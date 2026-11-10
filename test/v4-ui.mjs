@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ import { createHandler } from '../api/fetch.js';
 const files = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.png')).map((f) => path.join(fixturesDir, f));
 const proxy = createHandler({ resolve: async () => [{ address: '93.184.216.34', family: 4 }], request: async () => ({ status: 404, headers: {}, body: Readable.from([Buffer.from('')]), destroy() {} }), env: {} });
 const server = await serve(4207, proxy);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const browser = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const logs = [];
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -38,15 +39,15 @@ const targets = files.map((f) => {
 
 await check('T10.1 the intake screen offers the launcher format and defaults to the current v3', async () => {
   await page.waitForSelector('#target-pick');
-  assert.equal(await page.getByRole('radio', { name: 'Current (v3)' }).getAttribute('aria-checked'), 'true');
-  assert.equal(await page.getByRole('radio', { name: 'New look (v4)' }).getAttribute('aria-checked'), 'false');
+  assert.equal(await page.getByRole('radio', { name: 'v3', exact: true }).getAttribute('aria-checked'), 'true');
+  assert.equal(await page.getByRole('radio', { name: 'v4', exact: true }).getAttribute('aria-checked'), 'false');
   assert.deepEqual(logs, []);
 });
 
 await check('T10.2 choosing v4 is remembered and explained', async () => {
-  await page.getByRole('radio', { name: 'New look (v4)' }).click();
-  assert.equal(await page.getByRole('radio', { name: 'New look (v4)' }).getAttribute('aria-checked'), 'true');
-  assert.match(await page.locator('#target-pick .hint-text').innerText(), /192 px/);
+  await page.getByRole('radio', { name: 'v4', exact: true }).click();
+  assert.equal(await page.getByRole('radio', { name: 'v4', exact: true }).getAttribute('aria-checked'), 'true');
+  assert.match(await page.locator('#target-pick .info').getAttribute('data-tip'), /192 px/);
   assert.equal(await page.evaluate(() => window.__studio.prefs.target), 'v4');
 });
 
@@ -65,8 +66,8 @@ await check('T10.3 the harvested set is marked v4 and keeps 192 px two-layer mar
 });
 
 await check('T10.4 the export dialog says v4 and the downloaded manifest matches the Node v4 run', async () => {
-  await page.getByRole('button', { name: 'Export' }).click();
-  await page.waitForSelector('dialog .gate', { timeout: 120000 });
+  await page.click('#export-btn');
+  await page.waitForSelector('#export-sheet .gate', { timeout: 120000 });
   assert.match(await page.locator('#exp-format').innerText(), /v4/);
   assert.equal(await page.locator('#exp-mismatch').count(), 0);
   const zip = await download();
@@ -86,7 +87,7 @@ await check('T10.4 the export dialog says v4 and the downloaded manifest matches
 await check('T10.5 switching the choice after harvesting does not change the set and the export says so', async () => {
   await page.keyboard.press('Escape');
   await page.evaluate(() => { window.__studio.prefs.target = 'v3'; });
-  await page.getByRole('button', { name: 'Export' }).click();
+  await page.click('#export-btn');
   await page.waitForSelector('#exp-mismatch');
   assert.match(await page.locator('#exp-mismatch').innerText(), /harvested as v4/);
   assert.equal(await page.evaluate(() => window.__studio.state.target), 'v4');
@@ -96,11 +97,8 @@ await check('T10.5 switching the choice after harvesting does not change the set
 await check('T10.5b a hand-picked colour is brought inside the v4 rules and the v4 choice survives a reload', async () => {
   const key = await page.evaluate(() => window.__studio.state.order[3]);
   await page.locator('.cell[data-key="' + key + '"]').click();
-  await page.locator('.sel-head ~ .colour-row input[type=color]').evaluate((el) => {
-    el.value = '#ffd400';
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  await page.locator('#colour-hex').fill('#ffd400');
+  await page.locator('#colour-hex').dispatchEvent('change');
   await page.fill('.proj-name', 'V4 set');
   await page.waitForFunction(() => window.__studio.saved >= 1, null, { timeout: 15000 });
   await page.waitForTimeout(1200);

@@ -1,0 +1,49 @@
+{
+  "ids": [
+    "add-bar",
+    "add-go",
+    "add-pick-files",
+    "add-pick-json",
+    "add-urls",
+    "collide-both",
+    "collide-dialog",
+    "collide-skip",
+    "collide-update",
+    "drop-overlay",
+    "dup-cancel",
+    "dup-dialog",
+    "dup-keep",
+    "dup-once",
+    "dup-title",
+    "exp-format",
+    "exp-mismatch",
+    "export-btn",
+    "go",
+    "harvest-both",
+    "harvest-catalogue",
+    "harvest-fihrist",
+    "manifest-panel",
+    "open-set",
+    "pairs",
+    "pick-files",
+    "polish-dialog",
+    "px-status",
+    "startover-cancel",
+    "startover-dialog",
+    "startover-ok",
+    "target-pick",
+    "urls"
+  ],
+  "acts": [
+    "copy-pin",
+    "pin",
+    "remove",
+    "retry-live",
+    "toast-action"
+  ],
+  "studio": [
+    "prefs",
+    "saved",
+    "state"
+  ]
+}

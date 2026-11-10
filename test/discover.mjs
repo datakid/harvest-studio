@@ -114,6 +114,34 @@ await check('the report lists every attempt in order with its status and reason'
   assert.equal(item.attempts[2].reason, null);
 });
 
+await check('G1 a home page served as the favicon is rejected as a page and the chain moves on', async () => {
+  const home = page('<title>App</title>');
+  const { item, calls } = await harvest({ [SITE]: home, [SITE + 'favicon.ico']: home, [SITE + 'apple-touch-icon.png']: squarePng });
+  const ico = item.attempts.find((a) => a.type === 'favicon.ico');
+  assert.equal(ico.status, 'rejected');
+  assert.equal(ico.reason, 'page returned instead of image');
+  assert.equal(item.status, 'found');
+  assert.equal(item.source.type, 'well-known');
+  assert.ok(calls.includes(SITE + 'apple-touch-icon.png'));
+});
+
+await check('G1 an html body is rejected for a declared icon link too, with the same reason', async () => {
+  const home = page('<link rel="icon" href="/missing.png">');
+  const { item } = await harvest({ [SITE]: home, [SITE + 'missing.png']: home });
+  const at = item.attempts.find((a) => a.type === 'png');
+  assert.equal(at.status, 'rejected');
+  assert.equal(at.reason, 'page returned instead of image');
+  assert.equal(item.status, 'notfound');
+});
+
+await check('G3 an icon embedded in the page as a data uri needs no further request', async () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="8" y="8" width="48" height="48" rx="10" fill="#2a6df4"/><circle cx="32" cy="32" r="12" fill="#ffffff"/></svg>';
+  const { item, calls } = await harvest({ [SITE]: page('<link rel="icon" href="data:image/svg+xml,' + encodeURIComponent(svg) + '">') });
+  assert.equal(item.status, 'found');
+  assert.equal(item.source.type, 'svg');
+  assert.deepEqual(calls, [SITE]);
+});
+
 await check('a rejected icon and a failed manifest are both recorded', async () => {
   const flat = { width: 64, height: 64, data: new Uint8ClampedArray(64 * 64 * 4).fill(255) };
   const { item } = await harvest({ [SITE]: page('<link rel="icon" href="/flat.png"><link rel="manifest" href="/site.webmanifest">'), [SITE + 'flat.png']: await encodePng(flat, { optimise: false }) });

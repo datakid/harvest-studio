@@ -1,3 +1,4 @@
+import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -36,7 +37,7 @@ const proxy = createHandler({
   known: { hosts: [PIN_HOST, STALE_HOST], cdn: [] }
 });
 const server = await serve(4202, proxy);
-const exe = fs.readdirSync('/opt/pw-browsers').filter((d) => d.startsWith('chromium-')).flatMap((d) => ['chrome-linux64', 'chrome-linux'].map((s) => '/opt/pw-browsers/' + d + '/' + s + '/chrome')).find((p) => fs.existsSync(p));
+const exe = chromiumPath();
 const chrome = await chromium.launch({ executablePath: exe, args: ['--no-sandbox'] });
 const ctx = await chrome.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
 await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: 'http://localhost:4202' });
@@ -57,7 +58,7 @@ const harvest = async (url) => {
 await check('a bundled icon shows the stale badge and Retry live replaces it once the site answers', async () => {
   await harvest('https://' + STALE_HOST + '/');
   await tab.waitForSelector('[data-flag="stale-source"]');
-  assert.equal(await tab.locator('[data-flag="stale-source"]').innerText(), 'Stale: using shipped copy');
+  assert.match(await tab.locator('[data-flag="stale-source"]').innerText(), /^Stale: using shipped copy/);
   live.stale = false;
   await tab.locator('[data-act="retry-live"]').click();
   await tab.waitForFunction(() => !document.querySelector('[data-flag="stale-source"]'), null, { timeout: 120000 });
@@ -68,8 +69,8 @@ await check('the attempts list offers Use this one, pins the source and offers t
   await tab.reload();
   await tab.waitForSelector('#urls');
   await harvest('https://' + PIN_HOST + '/');
-  await tab.locator('details.attempts summary').click();
-  const touch = tab.locator('details.attempts li', { hasText: 'apple-touch-icon' });
+  await tab.click('#tabbtn-source');
+  const touch = tab.locator('ol.attempts li', { hasText: 'apple-touch-icon' });
   await touch.locator('[data-act="pin"]').click();
   await tab.waitForSelector('li.pinned', { timeout: 120000 });
   const href = await tab.locator('li.pinned .href').innerText();

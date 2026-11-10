@@ -18,13 +18,15 @@ export const h = (tag, props, ...children) => {
   return el;
 };
 
+export const kids = (...c) => c.flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false);
+
 export const clear = (el) => {
   while (el.firstChild) el.removeChild(el.firstChild);
   return el;
 };
 
 const NS = 'http://www.w3.org/2000/svg';
-export const svg = (paths, { size = 18, viewBox = '0 0 24 24', stroke = 1.8, fill = 'none' } = {}) => {
+export const svg = (paths, { size = 20, viewBox = '0 0 24 24', stroke = 1.5, fill = 'none', flip = false } = {}) => {
   const el = document.createElementNS(NS, 'svg');
   el.setAttribute('viewBox', viewBox);
   el.setAttribute('width', size);
@@ -35,6 +37,7 @@ export const svg = (paths, { size = 18, viewBox = '0 0 24 24', stroke = 1.8, fil
   el.setAttribute('stroke-linecap', 'round');
   el.setAttribute('stroke-linejoin', 'round');
   el.setAttribute('aria-hidden', 'true');
+  if (flip) el.style.transform = 'scaleX(-1)';
   for (const d of [].concat(paths)) {
     const p = document.createElementNS(NS, 'path');
     p.setAttribute('d', d);
@@ -57,6 +60,28 @@ export const ICONS = {
   warn: 'M12 4l9 16H3zM12 10v4M12 17.5v.01',
   folder: 'M3 6h6l2 2h10v11H3z',
   copy: 'M9 9h11v11H9zM5 15V4h11',
-  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3'
+  trash: 'M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 100-6 3 3 0 000 6z',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 010 12h-3',
+  redo: 'M15 14l5-5-5-5M20 9H10a6 6 0 000 12h3',
+  search: 'M11 18a7 7 0 100-14 7 7 0 000 14zM20 20l-4-4',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  info: 'M12 21a9 9 0 100-18 9 9 0 000 18zM12 11v5M12 8v.01',
+  chevron: 'M6 9l6 6 6-6',
+  next: 'M9 6l6 6-6 6',
+  sidebar: 'M4 5h16v14H4zM9 5v14',
+  eyedropper: 'M14.5 5.5l4 4M13 7l-8 8v4h4l8-8M17 3.5a2.1 2.1 0 013 3L17.5 9 15 6.5z',
+  palette: 'M12 3a9 9 0 100 18c1.6 0 2.2-1.1 1.6-2.2-.5-1 .1-2.1 1.4-2.1H17a4 4 0 004-4c0-5-4-9.7-9-9.7zM7.5 12h.01M9.5 8h.01M14 7.5h.01',
+  compare: 'M4 5h7v14H4zM13 5h7v14h-7z',
+  sliders: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
+  filter: 'M4 5h16l-6 7v6l-4 2v-8z',
+  sort: 'M7 4v16M7 20l-3-3M7 20l3-3M17 20V4M17 4l-3 3M17 4l3 3',
+  grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  keyboard: 'M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8',
+  report: 'M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5',
+  minus: 'M5 12h14',
+  pin: 'M12 17v5M9 3h6l-1 6 3 3H7l3-3z',
+  tag: 'M3 12V4h8l10 10-8 8zM7.5 8h.01',
+  box: 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10'
 };
 export const icon = (name, opts) => svg(ICONS[name], opts);

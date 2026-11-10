@@ -1,9 +1,10 @@
 import { createLimiter } from './limiter.js';
 import { sha256, text, errText, pool, canonicalJson } from './runtime.js';
-import { sniff, EXT_BY_NAME } from './decode.js';
-import { normalize, gate, cropImage, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
+import { sniff, looksLikePage, PAGE_FOR_IMAGE, EXT_BY_NAME } from './decode.js';
+import { normalize, normalizeDecoded, gate, cropImage, highFrequencyShare, chromaticColours, opaqueShare } from './pixels.js';
 import { imageToLab, extractColours, tintFromHex, tintV4, v4Violations, STRONG_SHARE, hexToLab, isHex } from './color.js';
-import { extractGlyph, traceGlyph, traceGlyphAuto, glyphStats, GLYPH_V4_SIZE, GLYPH_V4_CONTENT } from './glyph.js';
+import { extractGlyph, traceGlyph, traceGlyphAuto, glyphStats, GLYPH_SIZE, GLYPH_V4_SIZE, GLYPH_V4_CONTENT } from './glyph.js';
+import { cleanAdjust, shapesGlyph, WEIGHT_STEP } from './adjust.js';
 import { polishReport } from './polish.js';
 import { dHash, detectDefaults, DHASH_MAX, DELTA_E_MAX, MIN_OTHER_APPS } from './dedupe.js';
 import { readLinks, readMetas, readBaseHref, candidateGroups, loadHref } from './discover.js';
@@ -98,14 +99,15 @@ const withDeadline = (t, run, ms) =>
 
 export const pixelHash = (img) => sha256(img.data);
 
-const finishFrom = async (bytes, source, result) => {
+const finishFrom = async (bytes, source, result, nopts = {}) => {
   const ext = sniff(bytes);
-  if (!ext) throw new Error('not an image');
-  const { img, srcWidth, original } = await normalize(bytes, ext);
+  if (!ext) throw new Error(looksLikePage(bytes) ? PAGE_FOR_IMAGE : 'not an image');
+  const { img, srcWidth, original, opaque } = await normalize(bytes, ext, nopts);
   const bad = gate(img, srcWidth);
   if (bad) throw new Error(bad);
   result.image = img;
   result.original = original;
+  result.opaque = opaque;
   result.source = source;
 };
 
@@ -132,7 +134,9 @@ const useKnown = async (io, r) => {
 };
 
 export const processTarget = async (t, ctx) => {
-  const { io, overrides = {}, pins = {}, local = false } = ctx;
+  const { io, overrides = {}, pins = {}, local = false, adjust = {} } = ctx;
+  const bg = cleanAdjust(adjust[t.key]).background;
+  const nopts = bg ? { background: bg } : {};
   const result = { key: t.key, url: t.url || null, status: 'notfound', source: null, error: null, image: null, fa: false, attempts: [] };
   if (!KEY_RE.test(t.key)) {
     result.error = 'key is not safe for a file name';
@@ -147,19 +151,19 @@ export const processTarget = async (t, ctx) => {
       return result;
     }
     if (typeof ov === 'string' && ov) {
-      await finishFrom(await io.readOverride(ov), { type: 'override', href: ov }, result);
+      await finishFrom(await io.readOverride(ov), { type: 'override', href: ov }, result, nopts);
       result.status = 'override';
       return result;
     }
     if (t.bytes) {
-      await finishFrom(t.bytes, { type: 'file', href: t.fileName || t.key }, result);
+      await finishFrom(t.bytes, { type: 'file', href: t.fileName || t.key }, result, nopts);
       result.status = 'found';
       return result;
     }
     if (t.iconHref && !local) {
       try {
         const bytes = await loadHref(t.iconHref, { fetchBytes: (u) => fetchRetry(io, u) });
-        await finishFrom(bytes, { type: 'icon-field', href: short(t.iconHref) }, result);
+        await finishFrom(bytes, { type: 'icon-field', href: short(t.iconHref) }, result, nopts);
         result.status = 'found';
         return result;
       } catch (e) {
@@ -175,7 +179,7 @@ export const processTarget = async (t, ctx) => {
         result.error = 'no file for this key in the source folder';
         return result;
       }
-      await finishFrom(found.bytes, { type: 'local', href: found.file }, result);
+      await finishFrom(found.bytes, { type: 'local', href: found.file }, result, nopts);
       result.status = 'found';
       return result;
     }
@@ -190,7 +194,7 @@ export const processTarget = async (t, ctx) => {
     try {
       const bytes = await loadHref(pin.href, { fetchBytes: (u) => fetchRetry(io, u, undefined, { timeoutDelayMs: ICON_RETRY_MS, onTimeout: (e) => timeouts.push(e) }) });
       if (!bytes || !bytes.length) throw new Error('empty');
-      await finishFrom(bytes, at, result);
+      await finishFrom(bytes, at, result, nopts);
       result.status = 'found';
       result.attempts.push({ ...at, status: 'used', reason: 'pinned source' });
       return result;
@@ -256,6 +260,7 @@ export const processTarget = async (t, ctx) => {
     result.source = found.at;
     result.image = found.img;
     result.original = found.original;
+    result.opaque = found.opaque;
     result.status = 'found';
     if (found.soft) result.flags = [...(result.flags || []), LOW_RES];
     return result;
@@ -276,8 +281,14 @@ export const processTarget = async (t, ctx) => {
         const bytes = await loadHref(c.href, candidateIo);
         if (!bytes || !bytes.length) throw new Error('empty');
         const ext = sniff(bytes);
+        if (!ext && looksLikePage(bytes)) {
+          noteRetries(timeouts, at);
+          errors.push(c.type + ': ' + PAGE_FOR_IMAGE);
+          result.attempts.push({ ...at, status: 'rejected', reason: PAGE_FOR_IMAGE });
+          continue;
+        }
         if (!ext) throw new Error('not an image');
-        const { img, srcWidth, original, ratio } = await normalize(bytes, ext);
+        const { img, srcWidth, original, ratio, opaque } = await normalize(bytes, ext, nopts);
         if (c.square && Math.abs(ratio - 1) > 0.1) throw new Error('not square');
         const bad = gate(img, srcWidth);
         const retried = timeouts.length > 0;
@@ -289,28 +300,28 @@ export const processTarget = async (t, ctx) => {
           continue;
         }
         if (held && held.soft) {
-          if (srcWidth === null || srcWidth >= SOFT_ICO_PX) return accept({ at, img, original, reason: 'well-known path beats low-res ico' });
+          if (srcWidth === null || srcWidth >= SOFT_ICO_PX) return accept({ at, img, original, opaque, reason: 'well-known path beats low-res ico' });
           result.attempts.push({ ...at, status: 'rejected', reason: 'also low resolution' });
           continue;
         }
         if (held) {
           if (isRichSvg(img)) {
             result.attempts.push({ ...held.at, status: 'rejected', reason: held.why });
-            return accept({ at, img, original, reason: 'preferred svg over jpeg touch icon' });
+            return accept({ at, img, original, opaque, reason: 'preferred svg over jpeg touch icon' });
           }
           result.attempts.push({ ...at, status: 'rejected', reason: 'plain svg, kept the touch icon' });
           continue;
         }
         const reason = retried ? 'retry after timeout' : null;
         if (c.type === 'apple-touch-icon' && (ext === 'jpg' || highFrequencyShare(img) > PHOTO_SHARE) && hasSvgLink(links)) {
-          held = { at, img, original, reason, wants: 'svg', why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
+          held = { at, img, original, opaque, reason, wants: 'svg', why: ext === 'jpg' ? 'jpeg touch icon' : 'photographic touch icon' };
           continue;
         }
         if (ext === 'ico' && srcWidth !== null && srcWidth < SOFT_ICO_PX && (c.type === 'ico' || c.type === 'favicon.ico')) {
-          held = { at, img, original, reason, soft: true, wants: 'well-known' };
+          held = { at, img, original, opaque, reason, soft: true, wants: 'well-known' };
           continue;
         }
-        return accept({ at, img, original, reason });
+        return accept({ at, img, original, opaque, reason });
       } catch (e) {
         const retried = timeouts.length > 0;
         noteRetries(timeouts, at);
@@ -327,7 +338,19 @@ export const processTarget = async (t, ctx) => {
 
 const conformV4 = (tint) => (Array.isArray(tint) && isHex(tint[0]) ? tintV4(tint[0]) : tint);
 
-const glyphOptionsOf = (options = {}) => (options.target === 'v4' ? { size: GLYPH_V4_SIZE, content: GLYPH_V4_CONTENT, twoTone: true } : {});
+const glyphOptionsOf = (options = {}) => {
+  const v4 = options.target === 'v4';
+  const out = v4 ? { size: GLYPH_V4_SIZE, content: GLYPH_V4_CONTENT, twoTone: true } : {};
+  const a = cleanAdjust(options.adjust);
+  if (a.scale !== undefined) {
+    out.content = Math.round((v4 ? GLYPH_V4_SIZE : GLYPH_SIZE) * a.scale);
+    if (!v4) out.keepMargin = true;
+  }
+  if (a.offset) out.offset = a.offset;
+  if (a.invert) out.invert = true;
+  if (a.twoTone !== undefined && v4) out.twoTone = a.twoTone;
+  return out;
+};
 
 export const analyzeIcon = async (img, options = {}) => {
   const n = img.width * img.height;
@@ -453,6 +476,8 @@ export const runHarvest = async (input, options = {}, io) => {
   const cellDefaulted = !options.cell && !previous.cell;
   const seed = options.seed || previous.seed || DEFAULT_SEED;
   const local = !!options.local;
+  const adjustMap = input.adjust || options.adjust || {};
+  const adjustOf = (key) => cleanAdjust(adjustMap[key]);
 
   let done = 0;
   const only = options.only ? new Set(options.only) : null;
@@ -469,7 +494,7 @@ export const runHarvest = async (input, options = {}, io) => {
         return { key: t.key, url: t.url, status: 'skipped' };
       }
       inflight.add(t.key);
-      const run = processTarget(t, { io: netIo, overrides, pins, local });
+      const run = processTarget(t, { io: netIo, overrides, pins, local, adjust: adjustMap });
       const r = limit ? await withDeadline(t, run, limit) : await run;
       inflight.delete(t.key);
       if (options.onTarget) await options.onTarget(r);
@@ -495,20 +520,21 @@ export const runHarvest = async (input, options = {}, io) => {
   const reuse = options.reuse || null;
   const target = options.target === 'v4' ? 'v4' : 'v3';
   const analysisOptions = target === 'v4' ? { target } : {};
+  const analysisFor = (key) => (shapesGlyph(adjustOf(key)) ? { ...analysisOptions, adjust: adjustOf(key) } : analysisOptions);
   const reused = new Set();
   for (const r of results) {
     if (!r.image) continue;
     const hash = await pixelHash(r.image);
     hashes.set(r.key, hash);
     const memo = reuse && reuse.get(r.key);
-    if (memo && memo.hash === hash && (memo.target || 'v3') === target) {
+    if (memo && memo.hash === hash && (memo.target || 'v3') === target && !shapesGlyph(adjustOf(r.key))) {
       reused.add(r.key);
       analyses.set(r.key, Promise.resolve({ value: memo.analysis }));
       continue;
     }
     analyses.set(
       r.key,
-      compute.analyze(r.image, analysisOptions).then(
+      compute.analyze(r.image, analysisFor(r.key)).then(
         (value) => ({ value }),
         (e) => ({ error: errText(e) })
       )
@@ -521,10 +547,13 @@ export const runHarvest = async (input, options = {}, io) => {
     if (r.image) {
       rec.image = r.image;
       rec.original = r.original || null;
+      rec.opaque = r.opaque === true;
+      const adj = adjustOf(r.key);
+      if (Object.keys(adj).length) rec.adjust = adj;
       if (!hashes.has(r.key)) hashes.set(r.key, await pixelHash(r.image));
       rec.hash = hashes.get(r.key);
       let analysis = { gradient: null, accent: null, colour: null, glyph: null };
-      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image, analysisOptions).then((value) => ({ value }), (e) => ({ error: errText(e) })));
+      if (!analyses.has(r.key)) analyses.set(r.key, compute.analyze(r.image, analysisFor(r.key)).then((value) => ({ value }), (e) => ({ error: errText(e) })));
       const analysed = await analyses.get(r.key);
       if (analysed.error) r.analysisError = analysed.error;
       else analysis = analysed.value;
@@ -586,7 +615,8 @@ export const runHarvest = async (input, options = {}, io) => {
   await Promise.all(
     traceQueue.map(async (rec) => {
       const memo = reused.has(rec.key) ? reuse.get(rec.key) : null;
-      rec.trace = memo && memo.trace ? memo.trace : await compute.trace(rec.glyphImage, rec.key);
+      const weight = adjustOf(rec.key).weight;
+      rec.trace = memo && memo.trace ? memo.trace : await compute.trace(rec.glyphImage, rec.key, weight ? { bias: -weight * WEIGHT_STEP } : undefined);
       rec.rawTrace = rec.trace;
       progress({ phase: 'trace', done: ++traced, total: traceQueue.length, key: rec.key });
     })
@@ -598,7 +628,7 @@ export const runHarvest = async (input, options = {}, io) => {
   if (widths.length >= 5) {
     const median = widths[Math.floor(widths.length / 2)];
     const outliers = traceQueue.filter((rec) => {
-      if (!rec.trace || !rec.trace.accepted) return false;
+      if (!rec.trace || !rec.trace.accepted || adjustOf(rec.key).weight) return false;
       const ratio = rec.trace.stroke / median;
       return ratio > STROKE_OUTLIER || ratio < 1 / STROKE_OUTLIER;
     });
@@ -610,6 +640,13 @@ export const runHarvest = async (input, options = {}, io) => {
         strokeRetraced.push(rec.key);
       }
     });
+  }
+
+  for (const rec of records) {
+    if (rec.adjust && rec.adjust.render === 'image') {
+      rec.glyphImage = null;
+      rec.trace = null;
+    }
   }
 
   const appOf = new Map(targets.map((t) => [t.key, t.appId]));
@@ -673,7 +710,7 @@ export const runHarvest = async (input, options = {}, io) => {
   }
 
   const sorted = [...records].sort((a, b) => (a.key < b.key ? -1 : 1));
-  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now, target }) : await buildLauncherExport(sorted, { cell, generatedAt: now, seed, target });
+  const exported = options.preview ? { files: {}, gate: { ok: true, failures: [] }, stats: {}, replaces: null } : legacy ? await buildLegacyExport(sorted, { generatedAt: now, target }) : await buildLauncherExport(sorted.filter((r) => !(r.adjust && r.adjust.exclude)), { cell, generatedAt: now, seed, target });
 
   const marked = new Set(sorted.filter((r) => r.image || r.fa).map((r) => r.key));
   const unused = launcherIds ? [...marked].filter((k) => !launcherIds.includes(k)).sort() : [];
@@ -732,3 +769,20 @@ export const runHarvest = async (input, options = {}, io) => {
 
 export { canonicalJson, EXT_BY_NAME, KEY_RE, buildTargets, extrasToTargets, mergeTargets };
 export { buildFihristTargets, isFihrist, urlIdentity, findDuplicates, dropDuplicates } from './targets.js';
+
+export const rerender = async (rec, adjust, { target = 'v3' } = {}) => {
+  const a = cleanAdjust(adjust);
+  if (!rec || !rec.image) throw new Error('this icon has no image');
+  if (a.background && !rec.original) throw new Error('the original image is not available for this icon');
+  const image = rec.original ? await normalizeDecoded(rec.original, { opaque: !!rec.opaque, background: a.background || 'auto' }) : rec.image;
+  const bad = gate(image, null);
+  if (bad) throw new Error(bad);
+  const analysis = await analyzeIcon(image, { target, adjust: a });
+  let glyphImage = analysis.glyph;
+  let trace = glyphImage ? await traceGlyphAuto(glyphImage, rec.key, a.weight ? { bias: -a.weight * WEIGHT_STEP } : {}) : null;
+  if (a.render === 'image') {
+    glyphImage = null;
+    trace = null;
+  }
+  return { image, glyphImage, trace, adjust: a };
+};

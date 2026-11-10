@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { check, finish, studioDir } from './util.mjs';
+import { check, finish, studioDir, fixturesDir } from './util.mjs';
 import { runHarvest, buildTargets, RASTER_EXT } from '../core/index.js';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -95,7 +95,7 @@ await check('the CLI uses the shipped icons when the network is down', async () 
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'hs-known-'));
   const one = { categories: [{ id: 'core', label: 'Core', apps: links.categories.flatMap((c) => c.apps).filter((a) => a.id === 'protocols') }] };
   await fs.writeFile(path.join(dir, 'links.json'), JSON.stringify(one));
-  const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--out', path.join(dir, 'icons')], { cwd: dir, encoding: 'utf8', env: { ...process.env, HTTPS_PROXY: '', https_proxy: '' } });
+  const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--out', path.join(dir, 'icons')], { cwd: dir, encoding: 'utf8', env: { ...process.env, HTTPS_PROXY: '', https_proxy: '', NODE_OPTIONS: '--require=' + path.join(fixturesDir, 'no-network.cjs') } });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /found\s+protocols\s+bundled known-icons\/protocols\.ico/);
 });

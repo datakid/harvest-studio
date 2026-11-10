@@ -40,10 +40,15 @@ export const state = {
   catalogue: null,
   fihrist: null,
   selected: null,
+  sel: new Set(),
+  anchor: null,
+  view: { q: '', group: 'all', smart: null, sort: 'name' },
+  compare: false,
   seed: DEFAULT_SEED,
   target: 'v3',
   progress: null,
   error: null,
+  errorProxy: false,
   bloom: false,
   dirty: true,
   unsaved: false,
@@ -52,7 +57,7 @@ export const state = {
   ghosts: 0
 };
 
-export const ui = { harmonyKind: 'analogous', harmonyBase: null, paletteName: '' };
+export const ui = { harmonyKind: 'analogous', harmonyBase: null, paletteName: '', tab: 'look', railOpen: false };
 
 export const mem = { launcherBuild: null };
 

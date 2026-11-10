@@ -41,10 +41,10 @@ export const scheduleSave = () => {
 export const defaultName = () => t('projectDefault', { n: [...state.records.values()].filter((r) => r.hasImage).length });
 
 export const adopt = (result, nameOf) => {
-  state.items = new Map(result.items.map((i) => [i.key, { ...i, name: nameOf(i.key) }]));
+  state.items = new Map(result.items.map((i) => [i.key, { ...i, name: nameOf(i.key) || i.key }]));
   state.records = new Map();
   for (const r of result.records) state.records.set(r.key, decodeRecord(r, state.items.get(r.key)));
-  for (const item of result.items) if (!state.records.has(item.key)) state.records.set(item.key, { key: item.key, appId: item.key, status: 'notfound', hasImage: false, name: item.name, base: null, tint: null, locked: false, trace: null });
+  for (const item of result.items) if (!state.records.has(item.key)) state.records.set(item.key, { key: item.key, appId: item.key, status: 'notfound', hasImage: false, name: nameOf(item.key) || item.key, base: null, tint: null, locked: false, trace: null });
   state.order = [...state.records.keys()].sort();
 };
 
@@ -65,7 +65,7 @@ export const enterWork = (primed = false) => {
 export const openProject = async (meta) => {
   const payload = await loadProject(meta.id);
   if (!payload) {
-    state.error = t('projectOpenFailed');
+    state.error = t('projectOpenError');
     emit('main');
     return;
   }
@@ -98,7 +98,7 @@ export const openProject = async (meta) => {
     emit('all');
   } catch (e) {
     state.stage = 'intake';
-    state.error = t('projectOpenFailed') + ': ' + (e.message || e);
+    state.error = t('projectOpenError') + ': ' + (e.message || e);
     emit('main');
   }
 };

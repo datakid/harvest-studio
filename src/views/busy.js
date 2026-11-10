@@ -3,12 +3,12 @@ import { h } from '../dom.js';
 import { t } from '../i18n.js';
 import { tile } from '../ui/tile.js';
 
-export const streamQueue = [];
-export let streamFrame = 0;
+let streamQueue = [];
+let streamFrame = 0;
 
 export const flushStream = () => {
   streamFrame = 0;
-  const cells = document.querySelectorAll('.work .gallery > li > .cell[data-busy-key]');
+  const cells = document.querySelectorAll('.gallery > li > .cell[data-busy-key]');
   const byKey = new Map([...cells].map((c) => [c.dataset.busyKey, c]));
   for (const p of streamQueue.splice(0)) {
     const cell = byKey.get(p.key);
@@ -16,6 +16,7 @@ export const flushStream = () => {
     if (!ghost) continue;
     const url = URL.createObjectURL(new Blob([p.favicon], { type: 'image/png' }));
     const el = tile({ faviconUrl: url });
+    el.classList.add('fade');
     el.querySelector('img').addEventListener('load', () => URL.revokeObjectURL(url), { once: true });
     ghost.replaceWith(el);
   }
@@ -29,7 +30,7 @@ export const streamTile = (p) => {
 export const updateProgress = () => {
   const bar = document.querySelector('.progress i');
   const text = document.querySelector('.progress-text');
-  if (!state.progress || !bar) return;
+  if (!state.progress || !bar || !text) return;
   const { done, total, phase, pending } = state.progress;
   const share = phase === 'trace' ? 0.5 + (done / total) * 0.5 : (done / total) * 0.5;
   bar.style.width = Math.round(share * 100) + '%';
@@ -42,9 +43,10 @@ export const updateProgress = () => {
 export const renderBusy = () =>
   h(
     'section',
-    { class: 'work', style: { display: 'block' } },
-    h('div', { class: 'row', style: { 'margin-bottom': '14px' } }, h('div', { style: { flex: 1 } }, h('div', { class: 'progress', role: 'progressbar', 'aria-label': t('working'), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, h('i')), h('div', { class: 'progress-text' }, t('working')))),
-    h('div', { class: 'stage' }, h('ul', { class: 'gallery' }, Array.from({ length: state.ghosts }, (_, i) => h('li', null, h('div', { class: 'cell', dataset: state.busyKeys && state.busyKeys[i] ? { busyKey: state.busyKeys[i] } : {} }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' '))))))
+    { class: 'busy' },
+    h('div', { class: 'progress', role: 'progressbar', 'aria-label': t('working'), 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, h('i')),
+    h('div', { class: 'progress-text', role: 'status' }, t('working')),
+    h('ul', { class: 'gallery busy-grid' }, Array.from({ length: state.ghosts }, (_, i) => h('li', null, h('div', { class: 'cell', 'data-busy-key': state.busyKeys && state.busyKeys[i] ? state.busyKeys[i] : undefined }, h('span', { class: 'tile-art ghost' }), h('span', { class: 'name' }, ' ')))))
   );
 
 on('stream', streamTile);

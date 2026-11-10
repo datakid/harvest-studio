@@ -61,3 +61,84 @@ export const exportable = () => imaged().filter((r) => !isExcluded(r));
 export const pinnable = (a) => /^https?:\/\//i.test(a.href || '') && a.status !== 'blocked';
 
 export const pinnedHref = (rec) => (state.pins[rec.key] && state.pins[rec.key].href) || null;
+
+export const hostOf = (rec) => {
+  const item = state.items.get(rec.key) || {};
+  try {
+    return item.url ? new URL(item.url).hostname.replace(/^www\./, '') : '';
+  } catch {
+    return '';
+  }
+};
+
+export const needsReview = (rec) => !!(contrastFlag(rec) || (!rec.hasImage && !rec.ghost));
+
+export const isAdjusted = (rec) => !!(rec.adjust && Object.keys(rec.adjust).length);
+
+export const SMART = {
+  review: needsReview,
+  locked: (r) => !!r.locked,
+  adjusted: isAdjusted,
+  imageOnly: (r) => r.hasImage && !r.mask,
+  excluded: isExcluded
+};
+
+export const hueOf = (rec) => {
+  const hex = rec.tint && rec.tint[0];
+  if (!hex) return 1000;
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return 999;
+  const d = max - min;
+  const hue = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return ((hue * 60) + 360) % 360;
+};
+
+const STATUS_ORDER = { notfound: 0, blocked: 1, default: 2, stale: 3, override: 4, found: 5, pending: 6 };
+
+export const groupOf = (rec) => rec.groupId || '';
+
+export const groupsList = () => {
+  const counts = new Map();
+  for (const r of state.records.values()) {
+    const g = groupOf(r);
+    if (g) counts.set(g, (counts.get(g) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+};
+
+export const smartCounts = () => {
+  const out = {};
+  for (const k of Object.keys(SMART)) out[k] = 0;
+  for (const r of state.records.values()) for (const [k, fn] of Object.entries(SMART)) if (fn(r)) out[k] += 1;
+  return out;
+};
+
+export const visibleKeys = () => {
+  const { q, group, smart, sort } = state.view;
+  const needle = q.trim().toLowerCase();
+  let list = [...state.records.values()];
+  if (group !== 'all') list = list.filter((r) => groupOf(r) === group);
+  if (smart && SMART[smart]) list = list.filter(SMART[smart]);
+  if (needle) list = list.filter((r) => r.name.toLowerCase().includes(needle) || r.key.includes(needle) || hostOf(r).includes(needle));
+  const by = {
+    name: (a, b) => a.name.localeCompare(b.name) || (a.key < b.key ? -1 : 1),
+    group: (a, b) => groupOf(a).localeCompare(groupOf(b)) || a.name.localeCompare(b.name),
+    hue: (a, b) => hueOf(a) - hueOf(b) || (a.key < b.key ? -1 : 1),
+    status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) || a.name.localeCompare(b.name)
+  }[sort] || ((a, b) => (a.key < b.key ? -1 : 1));
+  return list.sort(by).map((r) => r.key);
+};
+
+export const selectedRecs = () => [...state.sel].map((k) => state.records.get(k)).filter(Boolean);
+
+export const defaultScale = (target) => (target === 'v4' ? 124 / 192 : 92 / 128);
+
+export const sharedValue = (recs, read) => {
+  if (!recs.length) return undefined;
+  const first = JSON.stringify(read(recs[0]));
+  return recs.every((r) => JSON.stringify(read(r)) === first) ? read(recs[0]) : null;
+};

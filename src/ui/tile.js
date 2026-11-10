@@ -2,7 +2,7 @@ import { prefs } from '../store.js';
 import { h } from '../dom.js';
 import { effectiveTheme, tileColours } from '../colour.js';
 
-export const theme = () => effectiveTheme(prefs.theme);
+export const theme = () => (prefs.tone === 'light' || prefs.tone === 'dark' ? prefs.tone : effectiveTheme(prefs.theme));
 
 export const tile = (rec, { size = 60, mask = null, tint = null, colors = prefs.colors, theme: tone = theme() } = {}) => {
   const col = tileColours(tint || (rec && rec.tint), { colors, theme: tone });

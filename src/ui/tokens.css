@@ -1,0 +1,59 @@
+:root {
+  color-scheme: light dark;
+  --ink: light-dark(oklch(.24 .012 165), oklch(.94 .008 95));
+  --muted: light-dark(oklch(.47 .012 165), oklch(.72 .01 165));
+  --bg: light-dark(oklch(.975 .004 85), oklch(.175 .008 165));
+  --surface: light-dark(oklch(.992 .003 85), oklch(.215 .009 165));
+  --surface-2: light-dark(oklch(.945 .006 85), oklch(.26 .01 165));
+  --surface-raised: light-dark(oklch(.998 .002 85), oklch(.255 .01 165));
+  --line: light-dark(oklch(.24 .012 165 / .11), oklch(.94 .008 95 / .1));
+  --line-strong: light-dark(oklch(.24 .012 165 / .26), oklch(.94 .008 95 / .24));
+  --accent: light-dark(oklch(.48 .08 168), oklch(.78 .07 168));
+  --on-ink: light-dark(oklch(.975 .004 85), oklch(.175 .008 165));
+  --ok: light-dark(oklch(.45 .09 155), oklch(.78 .09 155));
+  --warn: light-dark(oklch(.47 .09 70), oklch(.8 .09 80));
+  --bad: light-dark(oklch(.48 .12 25), oklch(.76 .1 25));
+  --stage: light-dark(oklch(.955 .005 85), oklch(.15 .007 165));
+  --focus: var(--accent);
+  --scrim: oklch(.15 .01 165 / .45);
+
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 20px;
+  --r-xl: 28px;
+  --r-pill: 999px;
+  --r-icon: .27;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+
+  --ease: cubic-bezier(.2, 0, 0, 1);
+  --dur: 150ms;
+
+  --shadow-pop: 0 1px 2px oklch(0 0 0 / .06), 0 12px 32px -12px oklch(0 0 0 / .22);
+  --font: 'Readex Pro Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --target: 36px;
+  --topbar: 56px;
+  --rail: 220px;
+  --rail-collapsed: 56px;
+  --inspector: 360px;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; --shadow-pop: 0 1px 2px oklch(0 0 0 / .3), 0 12px 32px -12px oklch(0 0 0 / .6); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --shadow-pop: 0 1px 2px oklch(0 0 0 / .3), 0 12px 32px -12px oklch(0 0 0 / .6); } }
+@media (pointer: coarse) { :root { --target: 44px; } }
+:root[data-corners="soft"] { --r-icon: .31; }
+:root[data-corners="crisp"] { --r-icon: .2; }
+@media (prefers-reduced-motion: reduce) { :root { --dur: 0ms; } }

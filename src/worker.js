@@ -157,6 +157,7 @@ const serialise = async (rec) => {
     contrast: rec.contrast || null,
     colour: rec.colour ? { share: rec.colour.share } : null,
     hash: rec.hash || null,
+    hasOriginal: !!rec.original,
     adjust: rec.adjust || null,
     trace: rec.trace ? { accepted: rec.trace.accepted, d: rec.trace.d, ...(rec.trace.layers ? { layers: rec.trace.layers } : {}), bytes: rec.trace.bytes, iou: rec.trace.iou, reason: rec.trace.reason } : null,
     favicon,
@@ -358,7 +359,8 @@ const handlers = {
   },
 
   async build(p) {
-    const patched = [...records.values()].map((r) => ({ ...r, ...(p.patches[r.key] || {}) })).filter((r) => p.kind === 'pack' || !(r.adjust && r.adjust.exclude));
+    const only = Array.isArray(p.keys) && p.kind !== 'launcher' ? new Set(p.keys) : null;
+    const patched = [...records.values()].map((r) => ({ ...r, ...(p.patches[r.key] || {}) })).filter((r) => (!only || only.has(r.key)) && (p.kind === 'pack' || p.kind === 'packs' || !(r.adjust && r.adjust.exclude)));
     const sorted = patched.sort((a, b) => (a.key < b.key ? -1 : 1));
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
@@ -380,6 +382,15 @@ const handlers = {
       const rec = sorted.find((r) => r.key === p.key) || sorted.find((r) => r.image);
       const pack = await buildFaviconPack(rec, { name: p.name || rec.key, background: p.background || '#ffffff', themeColor: p.themeColor || null });
       return { value: { zip: pack.zip, head: pack.head, files: Object.keys(pack.files) }, transfer: [pack.zip.buffer] };
+    }
+    if (p.kind === 'packs') {
+      const files = {};
+      for (const rec of sorted.filter((r) => r.image)) {
+        const pack = await buildFaviconPack(rec, { name: p.names && p.names[rec.key] ? p.names[rec.key] : rec.key, background: p.background || '#ffffff', themeColor: p.themeColor || null });
+        for (const [name, bytes] of Object.entries(pack.files)) files[rec.key + '/' + name] = bytes;
+      }
+      const zip = zipFiles(files, '');
+      return { value: { zip, files: Object.keys(files) }, transfer: [zip.buffer] };
     }
     const exp = await buildCustomExport(sorted, { formats: p.formats, sizes: p.sizes, quality: p.quality || 90, lossless: !!p.lossless });
     return { value: { zip: exp.zip, files: Object.keys(exp.files) }, transfer: [exp.zip.buffer] };

@@ -1,46 +1,64 @@
-import { state, prefs, client, proxySettings, emit } from '../store.js';
+import { state, prefs, client, history, proxySettings, emit } from '../store.js';
+import { dropFromSelection, selectMany, selectOnly } from './select.js';
 import { t } from '../i18n.js';
 import { announce, toast } from '../ui/toast.js';
 import { decodeRecord, pinnedHref, recordPayload } from '../model.js';
 import { applyColours } from './colour.js';
 import { scheduleSave } from './project.js';
 
-export const removeTile = async (rec) => {
-  const entry = { payload: recordPayload(rec), item: state.items.get(rec.key), name: rec.name, hadImage: rec.hasImage, rec };
-  const index = state.order.indexOf(rec.key);
-  state.records.delete(rec.key);
-  state.items.delete(rec.key);
-  state.order = state.order.filter((k) => k !== rec.key);
-  emit('drop', rec.key);
-  if (state.selected === rec.key) {
-    state.selected = state.order[Math.min(index, state.order.length - 1)] || null;
-    document.querySelectorAll('.cell').forEach((c) => c.setAttribute('aria-selected', String(c.dataset.key === state.selected)));
-    emit('inspector');
+const detach = async (entries) => {
+  const gone = new Set(entries.map((e) => e.rec.key));
+  const first = state.order.indexOf(entries[0].rec.key);
+  for (const e of entries) {
+    state.records.delete(e.rec.key);
+    state.items.delete(e.rec.key);
+    emit('drop', e.rec.key);
   }
-  await client.call('remove', { key: rec.key });
+  state.order = state.order.filter((k) => !gone.has(k));
+  const next = state.order[Math.min(first, state.order.length - 1)] || null;
+  dropFromSelection([...gone]);
+  if (!state.sel.size && next) selectOnly(next);
+  for (const e of entries) await client.call('remove', { key: e.rec.key });
+  state.dirty = true;
   emit('pairs');
   emit('count');
+  emit('inspector');
   scheduleSave();
-  announce(t('removedTile', { name: entry.name }));
-  toast(t('removedTile', { name: entry.name }), { label: t('undo'), ms: 8000, onAction: () => restoreTile(entry) });
 };
 
-export const restoreTile = async (entry) => {
-  const rec = entry.rec;
-  state.records.set(rec.key, rec);
-  if (entry.item) state.items.set(rec.key, entry.item);
+const attach = async (entries) => {
+  for (const e of entries) {
+    state.records.set(e.rec.key, e.rec);
+    if (e.item) state.items.set(e.rec.key, e.item);
+  }
   state.order = [...state.records.keys()].sort();
-  await client.call('put', { record: entry.payload });
-  emit('cell', rec);
+  for (const e of entries) {
+    await client.call('put', { record: e.payload });
+    emit('cell', e.rec);
+  }
+  state.dirty = true;
+  selectMany(entries.map((e) => e.rec.key));
   emit('pairs');
   emit('count');
   scheduleSave();
-  announce(t('restoredTile', { name: entry.name }));
 };
+
+export const removeTiles = async (keys) => {
+  const entries = keys.map((k) => state.records.get(k)).filter(Boolean).map((rec) => ({ payload: recordPayload(rec), item: state.items.get(rec.key), name: rec.name, rec }));
+  if (!entries.length) return;
+  await detach(entries);
+  history.push({ label: 'remove', undo: () => attach(entries), redo: () => detach(entries) });
+  emit('history');
+  const label = entries.length === 1 ? t('removedTile', { name: entries[0].name }) : t('removedN', { n: entries.length });
+  announce(label);
+  toast(label, { label: t('undo'), ms: 8000, onAction: () => history.undo().then(() => emit('history')) });
+};
+
+export const removeTile = (rec) => removeTiles([rec.key]);
 
 export const copyPin = async (rec) => {
   await navigator.clipboard.writeText(JSON.stringify({ [rec.key]: { href: pinnedHref(rec) } }, null, 2));
-  toast(t('copied'));
+  announce(t('copied'));
 };
 
 export const pinAttempt = async (rec, a) => {
@@ -75,10 +93,13 @@ export const reharvest = async (rec, doneKey) => {
     state.items.set(rec.key, { ...item, ...next, flags: next.flags || [], name: rec.name });
     state.dirty = true;
     applyColours();
-    emit('main');
-    toast(t(doneKey));
+    emit('tiles-lite');
+    emit('cell', state.records.get(rec.key));
+    emit('count');
+    emit('inspector');
+    announce(t('updated'));
   } catch (e) {
-    toast(t('retryFailed', { why: e.message || String(e) }));
+    toast(t('retryError', { why: e.message || String(e) }));
   }
 };
 
@@ -93,9 +114,19 @@ export const replaceImage = async (rec, file) => {
     state.items.set(rec.key, { ...(state.items.get(rec.key) || {}), source: { type: 'file', href: file.name }, error: null, attempts: [], name: rec.name });
     state.dirty = true;
     applyColours();
-    emit('main');
-    toast(t('replaced'));
+    emit('tiles-lite');
+    emit('cell', state.records.get(rec.key));
+    emit('count');
+    emit('inspector');
+    announce(t('updated'));
   } catch (e) {
-    toast(t('replaceFailed', { why: e.message }));
+    toast(t('replaceError', { why: e.message }));
+  }
+};
+
+export const reharvestMany = async (keys) => {
+  for (const k of keys) {
+    const rec = state.records.get(k);
+    if (rec) await reharvest(rec, 'retryDone');
   }
 };

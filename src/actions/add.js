@@ -69,7 +69,7 @@ export const runAdd = async (targets, updating) => {
         emit('drop', t.key);
       }
     }
-    toast(t('addFailed', { why: e.message || String(e) }));
+    toast(t('addError', { why: e.message || String(e) }));
   } finally {
     state.adding -= 1;
     emit('adding');

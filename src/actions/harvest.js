@@ -15,6 +15,7 @@ export const baseOf = (file) => String(file || '').split('/').pop();
 export const openManifest = async () => {
   const b = state.pending.bundle;
   state.error = null;
+  state.errorProxy = false;
   state.stage = 'busy';
   state.busyKeys = null;
   state.ghosts = Object.keys(b.manifest.data.icons).length;
@@ -34,13 +35,14 @@ export const openManifest = async () => {
     enterWork();
   } catch (e) {
     state.stage = 'intake';
-    state.error = t('manifestFailed', { why: e.message || String(e) });
+    state.error = t('manifestError', { why: e.message || String(e) });
     emit('main');
   }
 };
 
 export const addFiles = async (files) => {
   state.error = null;
+  state.errorProxy = false;
   for (const f of files) {
     if (BUNDLE_RE.test(f.name)) state.pending.bundle.files.set(f.name, f);
     else if (isJsonFile(f)) {
@@ -65,6 +67,7 @@ export const startHarvest = async () => {
     return;
   }
   state.error = null;
+  state.errorProxy = false;
   let targets = await buildTargets(state.pending);
   const duplicates = findDuplicates(targets);
   if (duplicates.length) {
@@ -98,7 +101,8 @@ export const startHarvest = async () => {
     if (!result.records.some((r) => r.favicon)) {
       const why = (result.items.find((i) => i.error) || {}).error || t('statusNotfound');
       state.stage = 'intake';
-      state.error = t('harvestFailed', { why }) + (/proxy|token|fetch/i.test(why) ? ' ' + t('proxyNeeded') : '');
+      state.error = t('harvestError', { why });
+      state.errorProxy = /proxy|token|fetch/i.test(why);
       emit('main');
       return;
     }
@@ -112,7 +116,8 @@ export const startHarvest = async () => {
   } catch (e) {
     state.stage = 'intake';
     const why = e.message || String(e);
-    state.error = t('harvestFailed', { why }) + (/proxy/i.test(why) ? ' ' + t('proxyNeeded') : '');
+    state.error = /no proxy|needs the fetch proxy/i.test(why) ? t('proxyError') : t('harvestError', { why });
+    state.errorProxy = /proxy|token|fetch/i.test(why);
     emit('main');
   }
 };

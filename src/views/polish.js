@@ -1,7 +1,8 @@
 import { state } from '../store.js';
-import { h, icon } from '../dom.js';
+import { h, icon, kids } from '../dom.js';
 import { t } from '../i18n.js';
 import { tile } from '../ui/tile.js';
+import { sheet } from '../ui/sheet.js';
 import { imaged, similarNow } from '../model.js';
 
 export const polishRows = () => {
@@ -21,19 +22,17 @@ export const polishRows = () => {
 
 export const previewStrip = (colors, tone) => h('div', { class: 'pstrip ' + tone, role: 'group', 'aria-label': t(colors === 'vivid' ? 'vivid' : 'muted') + ', ' + t(tone === 'dark' ? 'themeDark' : 'themeLight') }, imaged().map((r) => tile(r, { size: 36, colors, theme: tone })));
 
-export const openPolish = () => {
-  const dlg = h('dialog', { 'aria-labelledby': 'pol-title', id: 'polish-dialog' });
-  const rows = polishRows();
-  const body = h(
-    'div',
-    { class: 'dlg' },
-    h('header', null, h('h2', { id: 'pol-title' }, t('polishTitle')), h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('close'), onClick: () => dlg.close() }, icon('close'))),
-    h('ul', { class: 'checklist' }, rows.map((r) => h('li', { 'data-id': r.id, class: r.ok ? 'ok' : 'warn' }, icon(r.ok ? 'check' : 'warn', { size: 16 }), h('span', null, r.text)))),
-    h('h3', { class: 'label' }, t('polishPreview')),
-    ...['vivid', 'muted'].flatMap((c) => ['light', 'dark'].map((tone) => h('div', { class: 'pstrip-row' }, h('span', { class: 'label' }, t(c) + ' · ' + t(tone === 'dark' ? 'themeDark' : 'themeLight')), previewStrip(c, tone))))
-  );
-  dlg.append(body);
-  document.body.append(dlg);
-  dlg.addEventListener('close', () => dlg.remove());
-  dlg.showModal();
-};
+export const openPolish = () =>
+  sheet({
+    id: 'polish-dialog',
+    title: t('polishTitle'),
+    wide: true,
+    build: (api) => {
+      api.body.append(...kids(
+        api.head(t('polishTitle')),
+        h('ul', { class: 'checklist' }, polishRows().map((r) => h('li', { 'data-id': r.id, class: r.ok ? 'ok' : 'warn' }, icon(r.ok ? 'check' : 'warn', { size: 16 }), h('span', null, r.text)))),
+        h('h3', { class: 'label' }, t('polishPreview')),
+        ...['vivid', 'muted'].flatMap((c) => ['light', 'dark'].map((tone) => h('div', { class: 'pstrip-row' }, h('span', { class: 'label' }, t(c === 'vivid' ? 'vivid' : 'muted') + ' · ' + t(tone === 'dark' ? 'themeDark' : 'themeLight')), previewStrip(c, tone))))
+      ));
+    }
+  });

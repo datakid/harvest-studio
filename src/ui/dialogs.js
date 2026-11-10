@@ -1,98 +1,61 @@
-import { h } from '../dom.js';
+import { h, kids } from '../dom.js';
 import { t } from '../i18n.js';
+import { sheet } from './sheet.js';
 
-export const askDuplicates = (groups, total) =>
+const ask = ({ id, titleId, title, body, list, buttons, fallback }) =>
   new Promise((resolve) => {
-    const extra = groups.reduce((n, g) => n + g.entries.length - 1, 0);
-    const dlg = h('dialog', { 'aria-labelledby': 'dup-title', id: 'dup-dialog' });
-    let choice = 'cancel';
-    const pick = (value) => () => {
-      choice = value;
-      dlg.close();
-    };
-    const shown = groups.slice(0, 8);
-    dlg.append(
-      h(
-        'div',
-        { class: 'dlg' },
-        h('header', null, h('h2', { id: 'dup-title' }, t('dupTitle', { n: groups.length }))),
-        h('p', { class: 'hint-text' }, t('dupBody', { n: groups.length, extra, total })),
-        h(
-          'ul',
-          { class: 'dups' },
-          shown.map((g) => h('li', null, h('b', { dir: 'auto' }, g.entries.map((e) => e.name).join(' = ')), h('span', { class: 'href', dir: 'ltr' }, g.url))),
-          groups.length > shown.length ? h('li', { class: 'more' }, t('dupMore', { n: groups.length - shown.length })) : null
-        ),
-        h(
-          'div',
-          { class: 'actions-end' },
-          h('button', { class: 'btn quiet', id: 'dup-cancel', type: 'button', onClick: pick('cancel') }, t('dupCancel')),
-          h('button', { class: 'btn', id: 'dup-keep', type: 'button', onClick: pick('keep') }, t('dupKeep', { n: total })),
-          h('button', { class: 'btn primary', id: 'dup-once', type: 'button', onClick: pick('once') }, t('dupOnce', { n: total - extra }))
-        )
-      )
-    );
-    dlg.addEventListener('close', () => {
-      dlg.remove();
-      resolve(choice);
+    let choice = fallback;
+    const api = sheet({
+      id,
+      titleId,
+      title,
+      build: (s) => {
+        s.body.append(...kids(
+          h('header', { class: 'sheet-head' }, h('h2', { id: titleId }, title)),
+          body ? h('p', { class: 'hint-text' }, body) : null,
+          list || null,
+          h('div', { class: 'actions-end' }, buttons.map(([value, bid, label, kind]) => h('button', { class: 'btn' + (kind ? ' ' + kind : ''), id: bid, type: 'button', onClick: () => { choice = value; s.close(); } }, label)))
+        ));
+      }
     });
-    document.body.append(dlg);
-    dlg.showModal();
+    api.el.addEventListener('close', () => resolve(choice));
   });
 
-export const askCollisions = (same) =>
-  new Promise((resolve) => {
-    const dlg = h('dialog', { 'aria-labelledby': 'col-title', id: 'collide-dialog' });
-    let choice = 'skip';
-    const pick = (v) => () => {
-      choice = v;
-      dlg.close();
-    };
-    const shown = same.slice(0, 8);
-    dlg.append(
-      h(
-        'div',
-        { class: 'dlg' },
-        h('header', null, h('h2', { id: 'col-title' }, t('collideTitle'))),
-        h('p', { class: 'hint-text' }, t('collideBody', { n: same.length })),
-        h('ul', { class: 'dups' }, shown.map((x) => h('li', null, h('b', { dir: 'auto' }, x.name || x.key), x.url ? h('span', { class: 'href', dir: 'ltr' }, x.url) : null))),
-        h(
-          'div',
-          { class: 'actions-end' },
-          h('button', { class: 'btn quiet', id: 'collide-skip', type: 'button', onClick: pick('skip') }, t('collideSkip')),
-          h('button', { class: 'btn', id: 'collide-both', type: 'button', onClick: pick('both') }, t('collideBoth')),
-          h('button', { class: 'btn primary', id: 'collide-update', type: 'button', onClick: pick('update') }, t('collideUpdate'))
-        )
-      )
-    );
-    dlg.addEventListener('close', () => {
-      dlg.remove();
-      resolve(choice);
-    });
-    document.body.append(dlg);
-    dlg.showModal();
+const rows = (items, more) => h('ul', { class: 'dups' }, items, more ? h('li', { class: 'more' }, more) : null);
+
+export const askDuplicates = (groups, total) => {
+  const extra = groups.reduce((n, g) => n + g.entries.length - 1, 0);
+  const shown = groups.slice(0, 8);
+  return ask({
+    id: 'dup-dialog',
+    titleId: 'dup-title',
+    title: t('dupTitle', { n: groups.length }),
+    body: t('dupBody', { extra, total }),
+    list: rows(shown.map((g) => h('li', null, h('b', { dir: 'auto' }, g.entries.map((e) => e.name).join(' = ')), h('span', { class: 'href', dir: 'ltr' }, g.url))), groups.length > shown.length ? t('dupMore', { n: groups.length - shown.length }) : null),
+    buttons: [['cancel', 'dup-cancel', t('dupCancel'), 'quiet'], ['keep', 'dup-keep', t('dupKeep', { n: total })], ['once', 'dup-once', t('dupOnce', { n: total - extra }), 'primary']],
+    fallback: 'cancel'
   });
+};
+
+export const askCollisions = (same) => {
+  const shown = same.slice(0, 8);
+  return ask({
+    id: 'collide-dialog',
+    titleId: 'collide-title',
+    title: t('collideTitle'),
+    body: t('collideBody', { n: same.length }),
+    list: rows(shown.map((x) => h('li', null, h('b', { dir: 'auto' }, x.name || x.key), x.url ? h('span', { class: 'href', dir: 'ltr' }, x.url) : null))),
+    buttons: [['skip', 'collide-skip', t('collideSkip'), 'quiet'], ['both', 'collide-both', t('collideBoth')], ['update', 'collide-update', t('collideUpdate'), 'primary']],
+    fallback: 'skip'
+  }).then((c) => c);
+};
 
 export const confirmStartOver = () =>
-  new Promise((resolve) => {
-    const dlg = h('dialog', { 'aria-labelledby': 'so-title', id: 'startover-dialog' });
-    let ok = false;
-    dlg.append(
-      h(
-        'div',
-        { class: 'dlg' },
-        h('header', null, h('h2', { id: 'so-title' }, t('startOverTitle'))),
-        h('p', { class: 'hint-text' }, t('startOverBody')),
-        h('div', { class: 'actions-end' },
-          h('button', { class: 'btn quiet', id: 'startover-cancel', type: 'button', onClick: () => dlg.close() }, t('dupCancel')),
-          h('button', { class: 'btn primary', id: 'startover-ok', type: 'button', onClick: () => { ok = true; dlg.close(); } }, t('startOverConfirm'))
-        )
-      )
-    );
-    dlg.addEventListener('close', () => {
-      dlg.remove();
-      resolve(ok);
-    });
-    document.body.append(dlg);
-    dlg.showModal();
+  ask({
+    id: 'startover-dialog',
+    titleId: 'startover-title',
+    title: t('startOverTitle'),
+    body: t('startOverBody'),
+    buttons: [[false, 'startover-cancel', t('cancel'), 'quiet'], [true, 'startover-ok', t('startOverConfirm'), 'primary']],
+    fallback: false
   });

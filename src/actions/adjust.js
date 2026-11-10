@@ -1,12 +1,12 @@
 import { state, client, history, emit } from '../store.js';
 import { t } from '../i18n.js';
-import { cleanAdjust, adjustSignature } from '../../core/adjust.js';
+import { cleanAdjust, adjustSignature, SCALE_MIN, SCALE_MAX, OFFSET_MAX } from '../../core/adjust.js';
 import { toast } from '../ui/toast.js';
-import { decodeRecord } from '../model.js';
+import { decodeRecord, defaultScale } from '../model.js';
 import { scheduleSave } from './project.js';
 
-export const adjustSession = { key: null, before: null, pending: null, timer: 0 };
-export let adjustChain = Promise.resolve();
+let session = { keys: [], before: new Map(), pending: null, timer: 0 };
+let chain = Promise.resolve();
 
 export const shapeOf = (a) => {
   const next = { ...cleanAdjust(a) };
@@ -32,65 +32,58 @@ export const applyAdjustNow = (key, next) => {
     state.dirty = true;
     scheduleSave();
   };
-  adjustChain = adjustChain.then(run, run);
-  return adjustChain;
+  chain = chain.then(run, run);
+  return chain;
 };
 
 export const afterAdjust = () => emit('adjusted');
 
+const same = (keys) => keys.length === session.keys.length && keys.every((k, i) => k === session.keys[i]);
+
+const begin = (keys) => {
+  if (same(keys)) return;
+  session = { keys: [...keys], before: new Map(keys.map((k) => [k, { ...((state.records.get(k) || {}).adjust || {}) }])), pending: null, timer: 0 };
+};
+
 export const flushLive = async () => {
-  clearTimeout(adjustSession.timer);
-  const next = adjustSession.pending;
-  adjustSession.pending = null;
-  if (!next || !adjustSession.key) return;
+  clearTimeout(session.timer);
+  const fn = session.pending;
+  session.pending = null;
+  if (!fn) return;
   try {
-    await applyAdjustNow(adjustSession.key, next);
+    for (const key of session.keys) await applyAdjustNow(key, fn(session.before.get(key) || {}, key));
     afterAdjust();
   } catch (e) {
-    toast(t('retryFailed', { why: e.message || String(e) }));
+    toast(t('adjustError', { why: e.message || String(e) }));
   }
 };
 
-export const beginSession = (key) => {
-  if (adjustSession.key === key) return;
-  const rec = state.records.get(key);
-  adjustSession.key = key;
-  adjustSession.before = rec && rec.adjust ? { ...rec.adjust } : {};
+export const adjustLive = (keys, fn) => {
+  begin(keys);
+  session.pending = fn;
+  clearTimeout(session.timer);
+  session.timer = setTimeout(flushLive, 60);
 };
 
-export const adjustLive = (key, next) => {
-  beginSession(key);
-  adjustSession.pending = next;
-  clearTimeout(adjustSession.timer);
-  adjustSession.timer = setTimeout(flushLive, 60);
-};
-
-export const adjustCommit = async (key, next) => {
-  beginSession(key);
-  adjustSession.pending = next;
+export const adjustCommit = async (keys, fn) => {
+  begin(keys);
+  session.pending = fn;
   await flushLive();
-  const before = adjustSession.before || {};
-  const rec = state.records.get(key);
-  const after = rec && rec.adjust ? { ...rec.adjust } : {};
-  adjustSession.key = null;
-  adjustSession.before = null;
-  if (adjustSignature(before) !== adjustSignature(after)) {
-    history.push({
-      label: 'adjust',
-      undo: async () => {
-        await applyAdjustNow(key, before);
-        afterAdjust();
-        emit('adjust-panel');
-      },
-      redo: async () => {
-        await applyAdjustNow(key, after);
-        afterAdjust();
-        emit('adjust-panel');
-      }
-    });
+  const { before } = session;
+  const list = session.keys;
+  const after = new Map(list.map((k) => [k, { ...((state.records.get(k) || {}).adjust || {}) }]));
+  session = { keys: [], before: new Map(), pending: null, timer: 0 };
+  if (list.some((k) => adjustSignature(before.get(k)) !== adjustSignature(after.get(k)))) {
+    const apply = (map) => async () => {
+      for (const k of list) await applyAdjustNow(k, map.get(k));
+      afterAdjust();
+      emit('adjust-panel');
+    };
+    history.push({ label: 'adjust', undo: apply(before), redo: apply(after) });
   }
   afterAdjust();
   emit('adjust-panel');
+  emit('history');
 };
 
 export const runHistory = async (which) => {
@@ -99,5 +92,21 @@ export const runHistory = async (which) => {
   if (done) {
     afterAdjust();
     emit('adjust-panel');
+    emit('colour-state');
+    emit('selection');
+    emit('history');
   }
 };
+
+export const scaleKeys = (keys, factor) =>
+  adjustCommit(keys, (a) => {
+    const cur = a.scale === undefined ? defaultScale(state.target) : a.scale;
+    return cleanAdjust({ ...a, scale: Math.min(SCALE_MAX, Math.max(SCALE_MIN, cur * factor)) });
+  });
+
+export const nudgeKeys = (keys, dx, dy) =>
+  adjustCommit(keys, (a) => {
+    const cur = a.offset || { x: 0, y: 0 };
+    const clamp = (v) => Math.min(OFFSET_MAX, Math.max(-OFFSET_MAX, v));
+    return cleanAdjust({ ...a, offset: { x: clamp(cur.x + dx), y: clamp(cur.y + dy) } });
+  });

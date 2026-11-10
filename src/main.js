@@ -2,31 +2,22 @@ import { client, state, prefs } from './store.js';
 import { scanJson } from '../core/sources.js';
 import { extrasToTargets, mergeTargets, isFihrist } from '../core/targets.js';
 import { listProjects } from './projects.js';
-import { runHistory } from './actions/adjust.js';
-import { refreshTiles } from './views/canvas.js';
-import { applyCorners } from './views/workspace.js';
+import { refreshArt, applyCorners } from './views/canvas.js';
+import { applyTheme } from './views/settings-sheet.js';
 import { installDnd } from './views/dnd.js';
+import { installKeyboard } from './keyboard.js';
 import { renderAll, renderMain } from './views/shell.js';
-import './views/addbar.js';
-import './views/busy.js';
-import './views/inspector.js';
 
 for (const type of ['pointerdown', 'keydown', 'dragenter', 'paste']) addEventListener(type, () => client.warm(), { once: true, capture: true });
 
-addEventListener('keydown', (e) => {
-  if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'z') return;
-  const a = document.activeElement;
-  if (a && (a.tagName === 'TEXTAREA' || a.isContentEditable || (a.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button'].includes(a.type)))) return;
-  e.preventDefault();
-  runHistory(e.shiftKey ? 'redo' : 'undo');
-});
-
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (prefs.theme === 'system') refreshTiles();
+  if (prefs.theme === 'system') refreshArt();
 });
 
 installDnd();
+installKeyboard();
 applyCorners();
+applyTheme();
 renderAll();
 window.__studio = { state, client, prefs };
 

@@ -201,6 +201,22 @@ await check('W11 on a phone the rail is a drawer and the inspector a bottom shee
   await p.context().close();
 });
 
+await check('W13 dropdowns, checkboxes, sliders and colour swatches use the app styling and no native datalist remains', async () => {
+  await page.locator('.cell').nth(3).click();
+  await page.locator('#fine-tune summary').click();
+  await page.click('#export-btn');
+  await page.locator('#exp-tabs button').last().click();
+  const styled = await page.evaluate(() => {
+    const ap = (sel) => [...document.querySelectorAll(sel)].map((e) => getComputedStyle(e).appearance);
+    return { select: ap('select'), check: ap('input[type="checkbox"]:not([role="switch"])'), range: ap('input[type="range"]'), datalists: document.querySelectorAll('datalist').length };
+  });
+  assert.ok(styled.select.length > 0 && styled.select.every((a) => a !== 'auto'), JSON.stringify(styled));
+  assert.ok(styled.check.length > 0 && styled.check.every((a) => a === 'none'), JSON.stringify(styled));
+  assert.ok(styled.range.length > 0 && styled.range.every((a) => a === 'none'), JSON.stringify(styled));
+  assert.equal(styled.datalists, 0);
+  await page.keyboard.press('Escape');
+});
+
 await check('W12 no console errors', () => assert.deepEqual(logs, []));
 
 await browser.close();

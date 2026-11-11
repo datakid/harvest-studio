@@ -84,7 +84,7 @@ await fs.copyFile(path.join(root, 'config', 'source-pins.json'), path.join(dist,
 await writeKnownHosts(root);
 
 let css = '';
-for (const name of ['ui/fonts.css', 'ui/tokens.css', 'ui/components.css', 'views/views.css']) css += (await fs.readFile(path.join(root, 'src', name), 'utf8')) + '\n';
+for (const name of ['ui/fonts.css', 'ui/tokens.css', 'ui/components.css', 'ui/controls.css', 'views/views.css']) css += (await fs.readFile(path.join(root, 'src', name), 'utf8')) + '\n';
 await fs.writeFile(path.join(dist, 'app.css'), css);
 await fs.copyFile(path.join(root, 'src/index.html'), path.join(dist, 'index.html'));
 for (const f of await fs.readdir(path.join(root, 'public'))) {

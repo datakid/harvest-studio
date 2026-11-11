@@ -235,7 +235,8 @@ const runBatch = async (p, post) => {
 const restoreOne = async (r) => {
   const image = r.favicon ? (await decodeImage(r.favicon, 'png')).image : null;
   const glyphImage = r.glyph ? (await decodeImage(r.glyph, 'png')).image : null;
-  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, adjust: r.adjust ? cleanAdjust(r.adjust) : null });
+  const original = r.original ? (await decodeImage(r.original, 'png')).image : null;
+  records.set(r.key, { key: r.key, appId: r.appId, status: r.status, image, original, glyphImage, trace: r.trace || null, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hash: r.hash || null, adjust: r.adjust ? cleanAdjust(r.adjust) : null });
 };
 
 const handlers = {
@@ -301,6 +302,12 @@ const handlers = {
       if (r.glyph) transfer.push(r.glyph.buffer);
     }
     return { value: { records: out, items, seed: seed || null, cell: cell || DEFAULT_CELL, v4: [...prev.values()].some((v) => v.v4) }, transfer };
+  },
+
+  async originals() {
+    const out = {};
+    for (const [key, rec] of records) if (rec.original) out[key] = await pngOf(rec.original);
+    return out;
   },
 
   async restore(p) {

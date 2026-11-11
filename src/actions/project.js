@@ -24,7 +24,10 @@ export const snapshot = () => ({
 export const writeProject = async () => {
   const imaged = [...state.records.values()].filter((r) => r.hasImage);
   const meta = { id: state.projectId, name: state.projectName, updatedAt: Date.now(), count: imaged.length, dots: imaged.slice(0, 8).map((r) => (r.tint && r.tint[0]) || '#8c95b6') };
-  if (await saveProject(meta, snapshot())) {
+  const snap = snapshot();
+  const originals = await client.call('originals').catch(() => ({}));
+  for (const r of snap.records) if (originals[r.key]) r.original = originals[r.key];
+  if (await saveProject(meta, snap)) {
     state.unsaved = false;
     state.projects = await listProjects();
     window.__studio.saved = (window.__studio.saved || 0) + 1;

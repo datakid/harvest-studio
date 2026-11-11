@@ -1,11 +1,12 @@
 {
   "$schema": "./fihrist.schema.json",
   "format": "fihrist/5",
-  "revision": 7,
-  "updated": "2026-10-26",
+  "revision": 8,
+  "updated": "2026-11-09",
   "groups": [
     { "id": "core", "ar": "الأساسية", "en": "Core", "icon": "layers" },
     { "id": "tools", "ar": "الأدوات", "en": "Tools", "icon": "calc" },
+    { "id": "practice", "ar": "التدريب", "en": "Practice", "icon": "star" },
     { "id": "experimental", "ar": "التجريبية", "en": "Experimental", "icon": "flask" },
     { "id": "print", "ar": "الطباعة", "en": "Print", "icon": "printer" }
   ],
@@ -100,24 +101,38 @@
       "aliases": ["maayir", "criteria", "معايير"], "def": 0,
       "variants": [
         { "id": "meridian", "ar": "ميريديان", "en": "Meridian", "aliases": ["facilities"], "url": "https://facilities-demo-tau.vercel.app/" },
-        { "id": "rubric", "ar": "سلّم التقييم", "en": "Rubric", "aliases": ["ranking", "ranking builder", "sollam"], "url": "https://ranking-builder-demo.vercel.app/" }
+        { "id": "rubric", "ar": "سلّم التقييم", "en": "Rubric", "aliases": ["ranking", "ranking builder", "sollam"], "url": "https://ranking-builder-demo.vercel.app/" },
+        { "id": "waymark", "ar": "وايمارك", "en": "Waymark", "aliases": ["routing", "clinic flow", "equations", "معادلات"], "dar": "مسار الرعاية وتدفق العيادة والمعادلات", "den": "Care routing, clinic flow and equations", "url": "https://waymark-hazel.vercel.app/#route" }
       ] },
     { "id": "tacit", "group": "tools", "pigment": "bone", "url": "https://tacit-web-lake.vercel.app/", "since": "2026-10-09",
       "ar": "المشغّل", "en": "Tacit", "dar": "مشغّل الروابط بلوحة المفاتيح", "den": "Keyboard-first web launcher",
       "aliases": ["tacit", "launcher", "app launcher", "mushaghel", "mashghal", "تاسيت", "مشغل", "مشغّل"] },
-    { "id": "typing-practice", "group": "tools", "pigment": "orpiment", "url": "https://typing-practice-wine-eta.vercel.app/", "since": "2026-10-17",
-      "ar": "تمرين الكتابة", "en": "Typing Practice", "dar": "تدريب على الكتابة بلوحة المفاتيح", "den": "Keyboard typing practice",
-      "aliases": ["tamreen el-kitaba", "tadreeb", "tadreeb kitaba", "typing", "typing practice", "typing test", "tarq", "keyboard", "kitaba", "تدريب", "تدريب كتابة", "كتابة", "تمرين", "طرق"] },
     { "id": "harvest-studio", "group": "tools", "pigment": "malachite", "url": "https://harvest-studio-phi.vercel.app/", "since": "2026-10-22",
       "ar": "الحصاد", "en": "Harvest Studio", "dar": "أيقونات التطبيقات وتلوين المجموعة", "den": "App favicons, glyph tracing and set colouring",
       "aliases": ["harvest", "harvest studio", "alhasad", "hasad", "favicon", "favicons", "icons", "icon", "ayqunat", "ayqonat", "الحصاد", "حصاد", "ايقونات", "أيقونات", "ايقونة"] },
 
+    { "id": "power-query-manager", "group": "tools", "pigment": "lapis", "url": "https://power-query-manager.vercel.app/", "since": "2026-11-09",
+      "ar": "مدير Power Query", "en": "Power Query Manager", "dar": "أدوات إدارة Power Query", "den": "Power Query management tools",
+      "aliases": ["pq", "power query", "powerquery", "queries", "m language", "باور كويري", "استعلامات"] },
+    { "id": "typing-practice", "group": "practice", "pigment": "orpiment", "url": "https://typing-practice-wine-eta.vercel.app/", "since": "2026-10-17",
+      "ar": "تمرين الكتابة", "en": "Typing Practice", "dar": "تدريب على الكتابة بلوحة المفاتيح", "den": "Keyboard typing practice",
+      "aliases": ["tamreen el-kitaba", "tadreeb", "tadreeb kitaba", "typing", "typing practice", "typing test", "tarq", "keyboard", "kitaba", "تدريب", "تدريب كتابة", "كتابة", "تمرين", "طرق"] },
+    { "id": "platen", "group": "practice", "pigment": "verdigris", "url": "https://platen-2zj1.vercel.app/#/t/python/values-types/assignment/a", "since": "2026-11-09",
+      "ar": "بلاتن", "en": "Platen", "dar": "تدريب على بايثون حسب الموضوع", "den": "Python practice by topic",
+      "aliases": ["python", "coding", "exercises", "بايثون", "برمجة", "تمارين"] },
+    { "id": "reaction-time", "group": "practice", "pigment": "tyrian", "url": "https://reaction-time-lovat-mu.vercel.app/", "since": "2026-11-09",
+      "ar": "زمن رد الفعل", "en": "Reaction Time", "dar": "تدريب على زمن رد الفعل وتوقيت الإدخال", "den": "Reaction time and input timing practice",
+      "aliases": ["lull", "reflex", "reflexes", "input timing", "رد الفعل", "ردة الفعل", "زمن الاستجابة"] },
     { "id": "to-do", "group": "experimental", "pigment": "malachite", "url": "https://to-do-cyan-theta.vercel.app/", "since": "2026-08-11",
       "ar": "المهام", "en": "To Do", "dar": "متابعة المهام والتقارير", "den": "Task and report tracker",
       "aliases": ["maham", "taqarir", "reports", "todo", "تقارير"] },
-    { "id": "entity-tracker", "group": "experimental", "pigment": "madder", "url": "https://entity-tracker-pi.vercel.app/", "since": "2026-08-11",
+    { "id": "entity-tracker", "group": "experimental", "pigment": "madder", "since": "2026-08-11",
       "ar": "بيان جهات متعاقدة", "en": "Entity Tracker", "dar": "تتبع الجهات المتعاقدة", "den": "Tracks contracted entities",
-      "aliases": ["bayan gehat", "gehat", "contracted entities"] },
+      "aliases": ["bayan gehat", "gehat", "contracted entities"], "def": 0,
+      "variants": [
+        { "id": "main", "ar": "الرئيسي", "en": "Main", "url": "https://entity-tracker-pi.vercel.app/" },
+        { "id": "alt", "ar": "بديل", "en": "Alt", "aliases": ["entity viewer", "viewer"], "dar": "بيان الجهات المتعاقدة من ملفات xlsx وxls وcsv", "den": "Contracted entities statement from xlsx, xls and csv files", "url": "https://entity-viewer.vercel.app/" }
+      ] },
     { "id": "pillbug", "group": "experimental", "pigment": "lapis", "since": "2026-10-02",
       "ar": "أدوات الصيدلية", "en": "Pharmacy Tools", "dar": "إدارة القوائم ومحول الوحدات والأسعار", "den": "Lists, tasks and unit and price converter",
       "aliases": ["adawat saydaliya", "pharmacy tools", "صيدلية"], "def": 0,
@@ -167,6 +182,9 @@
       "aliases": ["masar", "msar", "masaar", "moror", "visits", "visit analysis", "print", "tebaa", "مسار", "مرور", "زيارات"] },
     { "id": "bayan", "group": "print", "pigment": "verdigris", "url": "https://bayan-mauve.vercel.app/", "since": "2026-10-25",
       "ar": "بيان", "en": "Bayan", "dar": "استخراج بيانات الروشتات من ملفات xlsx الخاصة", "den": "Extract prescription data from special xlsx files",
-      "aliases": ["bayan", "bayaan", "bayyan", "roshetta", "roshetat", "rosheta", "prescription", "prescriptions", "extract", "xlsx", "print", "tebaa", "بيان", "روشتة", "روشتات", "وصفة", "وصفات", "استخراج"] }
+      "aliases": ["bayan", "bayaan", "bayyan", "roshetta", "roshetat", "rosheta", "prescription", "prescriptions", "extract", "xlsx", "print", "tebaa", "بيان", "روشتة", "روشتات", "وصفة", "وصفات", "استخراج"] },
+    { "id": "basic-cover", "group": "print", "pigment": "orpiment", "url": "https://basic-cover.vercel.app/", "since": "2026-11-09",
+      "ar": "الغلاف الأساسي", "en": "Basic Cover", "dar": "بطاقات غلاف للطباعة مع إعدادات الطباعة", "den": "Printable cover cards with print settings",
+      "aliases": ["cover", "covers", "cards", "ghilaf", "tebaa", "غلاف", "أغلفة", "بطاقات", "طباعة"] }
   ]
 }

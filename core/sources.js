@@ -1,4 +1,4 @@
-import { buildTargets, buildFihristTargets, isFihrist, KEY_RE } from './targets.js';
+import { buildTargets, buildFihristTargets, isFihrist, termsOf, KEY_RE } from './targets.js';
 
 const URL_RE = /^https?:\/\/[^\s]+$/i;
 const DOMAIN_RE = /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/:?#][^\s]*)?$/i;
@@ -149,7 +149,12 @@ export const scanJson = (data, overrides = {}, lang = 'en') => {
   if (data && Array.isArray(data.categories) && data.categories.some((c) => c && Array.isArray(c.apps))) {
     const apps = new Map();
     for (const cat of data.categories) for (const app of (cat && cat.apps) || []) if (app && typeof app.id === 'string') apps.set(app.id, app);
-    const targets = buildTargets(data).map((t) => ({ ...t, name: apps.has(t.appId) ? catalogueName(apps.get(t.appId), t.variantId, lang) : t.appId }));
+    const cats = new Map(data.categories.filter((c) => c && typeof c.id === 'string').map((c) => [c.id, c]));
+    const targets = buildTargets(data).map((t) => {
+      const app = apps.get(t.appId);
+      const variant = app && t.variantId && Array.isArray(app.variants) ? app.variants.find((v) => v && v.id === t.variantId) : null;
+      return { ...t, name: app ? catalogueName(app, t.variantId, lang) : t.appId, terms: termsOf(app && (app.name ?? app.title), variant && variant.label, cats.get(t.groupId) && (cats.get(t.groupId).title ?? cats.get(t.groupId).name), t.appId, t.variantId) };
+    });
     return { kind: 'launcher', label: 'launcher', count: targets.length, targets, fields: null, candidates: null, languages: labelLanguages(data) };
   }
   const cols = collections(data)

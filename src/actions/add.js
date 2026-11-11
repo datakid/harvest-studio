@@ -30,7 +30,7 @@ export const runAdd = async (targets, updating) => {
     const added = [];
     for (const item of result.items) {
       const prev = state.items.get(item.key) || {};
-      state.items.set(item.key, { ...prev, ...item, name: names.get(item.key) || prev.name || item.key });
+      state.items.set(item.key, { ...prev, ...item, name: names.get(item.key) || prev.name || item.key, terms: prev.terms || [] });
     }
     for (const payload of result.records) {
       const name = names.get(payload.key) || payload.key;
@@ -98,7 +98,7 @@ export const addTargets = async (incoming) => {
   for (const x of targets) {
     if (updatingKeys.has(x.key)) continue;
     state.records.set(x.key, ghostFor(x));
-    state.items.set(x.key, { key: x.key, name: x.name || x.key, url: x.url || null, status: 'pending', flags: [], attempts: [] });
+    state.items.set(x.key, { key: x.key, name: x.name || x.key, terms: x.terms || [], url: x.url || null, status: 'pending', flags: [], attempts: [] });
   }
   state.order = [...state.records.keys()].sort();
   for (const x of targets) {

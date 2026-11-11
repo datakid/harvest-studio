@@ -31,6 +31,17 @@ export const buildTargets = (catalog) => {
 
 const PIGMENTS = { bone: '#b9ad92', verdigris: '#3aa89a', tyrian: '#a8327a', lapis: '#2f5fc4', madder: '#c4403f', orpiment: '#e0a21b', indigo: '#4b4aa8', malachite: '#2a9d62' };
 
+export const termsOf = (...parts) => {
+  const out = [];
+  const add = (v) => {
+    if (typeof v === 'string' && v.trim()) out.push(v.trim());
+    else if (Array.isArray(v)) v.forEach(add);
+    else if (v && typeof v === 'object') Object.values(v).forEach(add);
+  };
+  parts.forEach(add);
+  return [...new Set(out)];
+};
+
 const fihristName = (node, lang) => (lang === 'ar' ? node.ar || node.en : node.en || node.ar) || '';
 
 export const isFihrist = (data) => !!(data && typeof data.format === 'string' && /^fihrist\//i.test(data.format) && Array.isArray(data.tools));
@@ -38,6 +49,8 @@ export const isFihrist = (data) => !!(data && typeof data.format === 'string' &&
 export const buildFihristTargets = (data, lang = 'en') => {
   const out = [];
   if (!isFihrist(data)) return out;
+  const groups = new Map((Array.isArray(data.groups) ? data.groups : []).filter((g) => g && typeof g.id === 'string').map((g) => [g.id, g]));
+  const groupTerms = (id) => (groups.has(id) ? [groups.get(id).ar, groups.get(id).en] : []);
   for (const tool of data.tools) {
     if (!tool || typeof tool.id !== 'string' || !KEY_RE.test(tool.id)) continue;
     const title = fihristName(tool, lang) || tool.id;
@@ -46,10 +59,10 @@ export const buildFihristTargets = (data, lang = 'en') => {
       for (const v of tool.variants) {
         if (!v || typeof v.id !== 'string' || typeof v.url !== 'string') continue;
         const label = fihristName(v, lang);
-        out.push({ key: tool.id + '--' + v.id, appId: tool.id, variantId: v.id, url: v.url, name: label ? title + ' \u00b7 ' + label : title, ...extras });
+        out.push({ key: tool.id + '--' + v.id, appId: tool.id, variantId: v.id, url: v.url, name: label ? title + ' \u00b7 ' + label : title, terms: termsOf(tool.ar, tool.en, tool.dar, tool.den, tool.aliases, v.ar, v.en, v.dar, v.den, v.aliases, groupTerms(tool.group), tool.id, v.id), ...extras });
       }
     } else if (typeof tool.url === 'string') {
-      out.push({ key: tool.id, appId: tool.id, variantId: null, url: tool.url, name: title, ...extras });
+      out.push({ key: tool.id, appId: tool.id, variantId: null, url: tool.url, name: title, terms: termsOf(tool.ar, tool.en, tool.dar, tool.den, tool.aliases, groupTerms(tool.group), tool.id), ...extras });
     }
   }
   return out;

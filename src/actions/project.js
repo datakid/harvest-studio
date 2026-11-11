@@ -17,7 +17,7 @@ export const snapshot = () => ({
   polish: state.polish || null,
   selected: state.selected,
   settings: { mode: prefs.mode, monoColor: prefs.monoColor, monoVary: prefs.monoVary, spread: prefs.spread, paletteColors: prefs.paletteColors, paletteVary: prefs.paletteVary },
-  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
+  items: [...state.items.values()].map((i) => ({ key: i.key, name: i.name, terms: i.terms || [], url: i.url || null, flags: i.flags || [], status: i.status, source: i.source || null, error: i.error || null, attempts: i.attempts || [] })),
   records: [...state.records.values()].filter((r) => r.hasImage || !r.ghost).map(recordPayload)
 });
 
@@ -44,7 +44,7 @@ export const scheduleSave = () => {
 export const defaultName = () => t('projectDefault', { n: [...state.records.values()].filter((r) => r.hasImage).length });
 
 export const adopt = (result, nameOf) => {
-  state.items = new Map(result.items.map((i) => [i.key, { ...i, name: nameOf(i.key) || i.key }]));
+  state.items = new Map(result.items.map((i) => [i.key, { ...i, name: nameOf(i.key) || i.key, terms: i.terms || (state.terms && state.terms.get(i.key)) || [] }]));
   state.records = new Map();
   for (const r of result.records) state.records.set(r.key, decodeRecord(r, state.items.get(r.key)));
   for (const item of result.items) if (!state.records.has(item.key)) state.records.set(item.key, { key: item.key, appId: item.key, status: 'notfound', hasImage: false, name: nameOf(item.key) || item.key, base: null, tint: null, locked: false, trace: null });

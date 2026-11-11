@@ -1,4 +1,4 @@
-import { state } from './store.js';
+import { state, emit } from './store.js';
 import { t } from './i18n.js';
 import { similarPairs } from '../core/tints.js';
 
@@ -102,6 +102,14 @@ const STATUS_ORDER = { notfound: 0, blocked: 1, default: 2, stale: 3, override: 
 
 export const groupOf = (rec) => rec.groupId || '';
 
+let engine = null;
+let loading = null;
+export const loadSearch = () => (loading ||= import('/search.js').then((m) => { engine = m; emit('view'); }, () => { loading = null; }));
+const docOf = (r) => {
+  const it = state.items.get(r.key) || {};
+  return { key: r.key, name: r.name, terms: it.terms || [], url: it.url || '', group: groupOf(r), tint: (r.tint && r.tint[0]) || '' };
+};
+
 export const groupsList = () => {
   const counts = new Map();
   for (const r of state.records.values()) {
@@ -124,7 +132,11 @@ export const visibleKeys = () => {
   let list = [...state.records.values()];
   if (group !== 'all') list = list.filter((r) => groupOf(r) === group);
   if (smart && SMART[smart]) list = list.filter(SMART[smart]);
-  if (needle) list = list.filter((r) => r.name.toLowerCase().includes(needle) || r.key.includes(needle) || hostOf(r).includes(needle));
+  if (needle && engine) return engine.rank(list.map(docOf), needle);
+  if (needle) {
+    loadSearch();
+    list = list.filter((r) => r.name.toLowerCase().includes(needle) || r.key.includes(needle) || hostOf(r).includes(needle));
+  }
   const by = {
     name: (a, b) => a.name.localeCompare(b.name) || (a.key < b.key ? -1 : 1),
     group: (a, b) => groupOf(a).localeCompare(groupOf(b)) || a.name.localeCompare(b.name),

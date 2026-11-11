@@ -217,6 +217,30 @@ await check('W13 dropdowns, checkboxes, sliders and colour swatches use the app 
   await page.keyboard.press('Escape');
 });
 
+await check('W14 search is fuzzy, reads aliases, addresses and colours, and ranks the best match first', async () => {
+  const p = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await p.goto('http://localhost:4197/');
+  await p.click('#harvest-fihrist');
+  await p.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
+  await p.waitForTimeout(1500);
+  const keys = async (q) => {
+    await p.fill('#search', q);
+    await p.waitForTimeout(500);
+    return p.evaluate(() => [...document.querySelectorAll('.cell')].map((c) => c.dataset.key));
+  };
+  assert.equal((await keys('ledgr'))[0].startsWith('ledger-form'), true);
+  assert.ok((await keys('khargy')).some((k) => k.startsWith('ledger-form')));
+  assert.equal((await keys('harv'))[0], 'harvest-studio');
+  assert.ok((await keys('platen-2zj1')).includes('platen'));
+  assert.ok((await keys('احمر')).length > 0);
+  const red = await keys('red');
+  assert.ok(red.length > 0 && red.length < 40);
+  assert.equal((await keys('zzzzqx')).length, 0);
+  assert.equal(await p.locator('.cell').count(), 0);
+  assert.ok((await keys('')).length === 56);
+  await p.close();
+});
+
 await check('W12 no console errors', () => assert.deepEqual(logs, []));
 
 await browser.close();

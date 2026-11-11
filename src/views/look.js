@@ -162,5 +162,5 @@ export const adjustSection = (recs) => {
 
 export const lookPanel = (recs) => {
   const single = recs.length === 1 ? recs[0] : null;
-  return h('div', { class: 'tab-panel', role: 'tabpanel', id: 'tab-look', 'aria-labelledby': 'tabbtn-look' }, single && single.hasImage ? previews(single) : null, colourSection(recs), adjustSection(recs));
+  return h('div', { class: 'tab-panel', role: 'tabpanel', id: 'tab-look', 'aria-labelledby': 'tabbtn-look' }, single && single.hasImage ? previews(single) : null, single && !single.hasImage ? h('p', { class: 'empty-note' }, t('noIconTip')) : null, colourSection(recs), adjustSection(recs));
 };

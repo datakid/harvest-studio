@@ -79,7 +79,7 @@
           ],
           "defaultVariant": 0
         },
-        { "id": "quinon", "title": { "ar": "كوينون", "en": "Quinon" }, "url": "https://power-query-manager.vercel.app/", "icon": "fa-database", "gradient": ["#4f7fd9", "#a5c4ff", "#1e3a7a"], "isNew": true, "since": "2026-11-09" },
+        { "id": "quoin", "title": { "ar": "كوين", "en": "Quoin" }, "url": "https://power-query-manager.vercel.app/", "icon": "fa-database", "gradient": ["#4f7fd9", "#a5c4ff", "#1e3a7a"], "isNew": true, "since": "2026-11-09" },
         {
           "id": "typing-practice", "title": { "ar": "التدريب", "en": "Practice" }, "icon": "fa-keyboard", "gradient": ["#ab8a4f", "#fef08a", "#713f12"], "isNew": true, "since": "2026-11-09",
           "variants": [

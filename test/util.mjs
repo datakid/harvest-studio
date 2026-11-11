@@ -8,7 +8,7 @@ export const here = path.dirname(fileURLToPath(import.meta.url));
 export const studioDir = path.resolve(here, '..');
 export const fixturesDir = path.join(here, 'fixtures');
 
-export const AWAITING_ICONS = ['quinon', 'typing-practice--platen', 'typing-practice--tarq'];
+export const AWAITING_ICONS = ['typing-practice--tarq'];
 
 export const fixtureTargets = async () => {
   const names = (await fs.readdir(fixturesDir)).filter((f) => f.endsWith('.png')).sort();

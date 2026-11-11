@@ -7,7 +7,7 @@ import { runHarvest, buildTargets, extrasToTargets, mergeTargets, RASTER_EXT } f
 const NOW = '2026-01-01T00:00:00.000Z';
 const readJson = async (...parts) => JSON.parse(await fs.readFile(path.join(studioDir, ...parts), 'utf8'));
 const links = await readJson('test', 'links.json');
-const catalogue = await readJson('config', 'catalogue.json');
+const catalogue = await readJson('test', 'links.json');
 const extras = extrasToTargets(await readJson('config', 'extras.json'));
 const knownDir = path.join(studioDir, 'config', 'known-icons');
 

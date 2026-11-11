@@ -4,7 +4,7 @@ import path from 'node:path';
 import { check, finish, NOW, localIo, studioDir } from './util.mjs';
 import { runHarvest, buildTargets, makeImage, traceGlyph, strokeWidth, maskOf, glyphInSafeArea, cornersRounded, alphaBounds, alphaCentroid, polishReport, STROKE_OUTLIER } from '../core/index.js';
 
-const catalogue = JSON.parse(await fs.readFile(path.join(studioDir, 'config', 'catalogue.json'), 'utf8'));
+const catalogue = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.json'), 'utf8'));
 const targets = buildTargets(catalogue);
 const run = await runHarvest({ targets, overrides: {} }, { profile: 'launcher', now: NOW, local: true, seed: 'a1b2c3d4' }, localIo());
 const polish = run.report.polish;

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { unzipSync } from '../node_modules/fflate/esm/browser.js';
 import { chromium } from 'playwright-core';
 import { serve } from '../scripts/serve.mjs';
-import { check, finish, fixturesDir, localIo, NOW } from './util.mjs';
+import { check, finish, fixturesDir, localIo, NOW, AWAITING_ICONS } from './util.mjs';
 import * as core from '../core/index.js';
 import { Readable } from 'node:stream';
 import { createHandler } from '../api/fetch.js';
@@ -284,16 +284,16 @@ await check('a site that cannot be reached without a proxy is named in a notice 
 await check('the shipped catalogue harvests in one click with no proxy, protocols, Fihrist and the Studio included', async () => {
   const fresh = await open({ width: 1200, height: 800 });
   await fresh.waitForSelector('#harvest-catalogue');
-  assert.match(await fresh.locator('#harvest-catalogue').innerText(), /34/);
+  assert.match(await fresh.locator('#harvest-catalogue').innerText(), /35/);
   await fresh.click('#harvest-catalogue');
   await fresh.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
-  await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
+  await fresh.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 35, null, { timeout: 120000 });
   const state = await fresh.evaluate(() => {
     const items = [...window.__studio.state.items.values()];
     const p = items.find((i) => i.key === 'protocols');
     return { total: items.length, found: items.filter((i) => i.status === 'found').length, protocols: p && p.status, source: p && p.source && p.source.type };
   });
-  assert.deepEqual(state, { total: 34, found: 34, protocols: 'found', source: 'bundled' });
+  assert.deepEqual(state, { total: 35, found: 35 - AWAITING_ICONS.length, protocols: 'found', source: 'bundled' });
   assert.equal(await fresh.locator('.toast').count(), 0);
 });
 

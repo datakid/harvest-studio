@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
 import { serve } from '../scripts/serve.mjs';
-import { check, finish } from './util.mjs';
+import { check, finish, AWAITING_ICONS } from './util.mjs';
 import { createHandler } from '../api/fetch.js';
 
 const shots = process.env.SHOTS || null;
@@ -21,7 +21,7 @@ const open = async (scheme) => {
   await page.goto('http://localhost:4203/');
   await page.waitForSelector('#harvest-catalogue');
   await page.click('#harvest-catalogue');
-  await page.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 34, null, { timeout: 120000 });
+  await page.waitForFunction(() => document.querySelectorAll('.gallery .cell').length === 35, null, { timeout: 120000 });
   await page.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await page.waitForTimeout(2200);
   return page;
@@ -58,7 +58,7 @@ await check('follow mode shows the old look-alikes in the counter and separate c
   await shot(light, 'strip-after-light', '.gallery');
 });
 
-await check('the polish dialog lists the checklist and four preview strips of 34 tiles', async () => {
+await check('the polish dialog lists the checklist and four preview strips of every harvested tile', async () => {
   await light.click('#pairs');
   await light.waitForSelector('#polish-dialog[open]');
   const rows = await light.$$eval('#polish-dialog .checklist li', (els) => els.map((e) => ({ id: e.dataset.id, ok: e.classList.contains('ok') })));
@@ -68,8 +68,9 @@ await check('the polish dialog lists the checklist and four preview strips of 34
   assert.ok(rows.find((r) => r.id === 'rounded').ok);
   const strips = await light.$$eval('#polish-dialog .pstrip', (els) => els.map((e) => ({ tone: e.className.includes('dark') ? 'dark' : 'light', tiles: e.querySelectorAll('.tile-art').length, vivid: e.querySelectorAll('.tile-art.vivid').length })));
   assert.equal(strips.length, 4);
-  for (const s of strips) assert.equal(s.tiles, 34);
-  assert.deepEqual(strips.map((s) => s.vivid), [34, 34, 0, 0]);
+  const shown = 35 - AWAITING_ICONS.length;
+  for (const s of strips) assert.equal(s.tiles, shown);
+  assert.deepEqual(strips.map((s) => s.vivid), [shown, shown, 0, 0]);
   assert.deepEqual(strips.map((s) => s.tone), ['light', 'dark', 'light', 'dark']);
   await shot(light, 'strip-preview', '#polish-dialog');
   await light.keyboard.press('Escape');

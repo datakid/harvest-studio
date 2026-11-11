@@ -10,21 +10,33 @@ const norm = (s) =>
 
 const wordsOf = (s) => norm(s).split(/[^\p{L}\p{N}#]+/u).filter(Boolean);
 
+const A = new Int32Array(66);
+const B = new Int32Array(66);
+
 const dist = (a, b, max) => {
-  if (Math.abs(a.length - b.length) > max) return max + 1;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i++) {
-    const row = [i];
+  const n = a.length;
+  const m = b.length;
+  if (Math.abs(n - m) > max) return max + 1;
+  if (m > 64 || n > 64) return max + 1;
+  let prev = A;
+  let row = B;
+  for (let j = 0; j <= m; j++) prev[j] = j;
+  for (let i = 1; i <= n; i++) {
+    row[0] = i;
     let low = i;
-    for (let j = 1; j <= b.length; j++) {
-      const v = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-      row.push(v);
+    const c = a.charCodeAt(i - 1);
+    for (let j = 1; j <= m; j++) {
+      const sub = prev[j - 1] + (c === b.charCodeAt(j - 1) ? 0 : 1);
+      const v = Math.min(prev[j] + 1, row[j - 1] + 1, sub);
+      row[j] = v;
       if (v < low) low = v;
     }
     if (low > max) return max + 1;
+    const swap = prev;
     prev = row;
+    row = swap;
   }
-  return prev[b.length];
+  return prev[m];
 };
 
 const subseq = (tok, s) => {
@@ -33,13 +45,12 @@ const subseq = (tok, s) => {
   return false;
 };
 
-const wordScore = (tok, w) => {
-  if (w === tok) return 100;
-  if (w.startsWith(tok)) return 90 - Math.min(20, w.length - tok.length);
-  if (tok.length > 1 && w.includes(tok)) return 60;
-  if (tok.length < 3) return 0;
+const exact = (tok, w) => (w === tok ? 100 : w.startsWith(tok) ? 90 - Math.min(20, w.length - tok.length) : tok.length > 1 && w.includes(tok) ? 60 : 0);
+
+const fuzzy = (tok, w) => {
   const max = tok.length < 5 ? 1 : 2;
-  const d = Math.min(dist(tok, w, max), dist(tok, w.slice(0, tok.length), max));
+  if (w.length < tok.length - max) return 0;
+  const d = Math.min(dist(tok, w, max), w.length > tok.length ? dist(tok, w.slice(0, tok.length), max) : max + 1);
   return d <= max ? 55 - d * 12 : 0;
 };
 
@@ -89,7 +100,7 @@ const fieldsOf = (d) => {
   const fields = [
     ['name', wordsOf(d.name)],
     ['key', wordsOf(d.key)],
-    ['terms', d.terms.flatMap(wordsOf)],
+    ['terms', [...new Set(d.terms.flatMap(wordsOf))]],
     ['url', wordsOf(d.url)],
     ['group', wordsOf(d.group)],
     ['colour', bucket ? [...BUCKETS[bucket].map(norm), String(d.tint).toLowerCase()] : []]
@@ -102,9 +113,16 @@ const fieldsOf = (d) => {
 
 const best = (tok, entry) => {
   let top = 0;
-  for (const f of entry.fields) for (const w of f.words) top = Math.max(top, wordScore(tok, w) * f.w);
-  if (!top && tok.length > 2 && subseq(tok, entry.joined)) top = 20;
-  return top;
+  for (const f of entry.fields) for (const w of f.words) {
+    const v = exact(tok, w) * f.w;
+    if (v > top) top = v;
+  }
+  if (top || tok.length < 3) return top;
+  for (const f of entry.fields) for (const w of f.words) {
+    const v = fuzzy(tok, w) * f.w;
+    if (v > top) top = v;
+  }
+  return top || (subseq(tok, entry.joined) ? 20 : 0);
 };
 
 export const rank = (docs, query) => {

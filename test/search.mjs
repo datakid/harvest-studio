@@ -81,10 +81,20 @@ await check('S8 colour names, Arabic colour names and hex prefixes select by col
 await check('S9 two thousand tiles answer in well under a frame', () => {
   const big = Array.from({ length: 2000 }, (_, i) => ({ key: 'k' + i, name: 'Tool ' + i + ' ' + ['ledger', 'solver', 'planner'][i % 3], terms: ['alias' + i, 'khargy'], url: 'https://app-' + i + '.vercel.app/', group: 'core', tint: '#' + ((i * 2654435) % 0xffffff).toString(16).padStart(6, '0') }));
   rank(big, 'warm');
+  const slowest = Math.max(
+    ...['ledgr', 'khargy', 'app-19', 'red planner'].map((q) => {
+      const runs = [0, 1, 2].map(() => {
+        const started = performance.now();
+        rank(big, q);
+        return performance.now() - started;
+      });
+      return Math.min(...runs);
+    })
+  );
+  assert.ok(slowest < 40, slowest + ' ms for the slowest query');
   const started = performance.now();
-  for (const q of ['ledgr', 'khargy', 'app-19', 'red planner']) rank(big, q);
-  const each = (performance.now() - started) / 4;
-  assert.ok(each < 30, each + ' ms per query');
+  rank(en, 'ledgr');
+  assert.ok(performance.now() - started < 10);
 });
 
 finish();

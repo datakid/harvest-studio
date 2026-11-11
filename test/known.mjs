@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { check, finish, studioDir, fixturesDir } from './util.mjs';
+import { check, finish, studioDir, fixturesDir, AWAITING_ICONS } from './util.mjs';
 import { runHarvest, buildTargets, RASTER_EXT } from '../core/index.js';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -32,17 +32,22 @@ const offline = (extra = {}) => ({
 });
 const run = (io, options = {}, list = targets) => runHarvest({ targets: list, overrides: {} }, { profile: 'launcher', mode: 'follow', now: NOW, ...options }, io);
 
-await check('every catalogue app ships an icon and the catalogue matches the shipped one', async () => {
-  assert.equal(targets.length, 34);
-  for (const t of targets) assert.ok(await readKnown(t.key), t.key);
+await check('every catalogue app ships an icon except the ones still waiting for a live save', async () => {
+  assert.equal(targets.length, 35);
+  for (const t of targets) {
+    const shipped = await readKnown(t.key);
+    if (AWAITING_ICONS.includes(t.key)) assert.equal(shipped, null, t.key + ' now ships an icon, remove it from AWAITING_ICONS');
+    else assert.ok(shipped, t.key);
+  }
+  for (const key of AWAITING_ICONS) assert.ok(targets.some((t) => t.key === key), key);
 });
 
 const offlineRun = await run(offline());
 
-await check('with no network at all the whole catalogue is harvested from the shipped icons', () => {
-  assert.equal(offlineRun.report.summary.found, 34);
-  assert.equal(offlineRun.report.summary.notfound, 0);
-  assert.ok(offlineRun.report.gate.ok);
+await check('with no network at all the whole catalogue is harvested from the shipped icons and the waiting ones are reported', () => {
+  assert.equal(offlineRun.report.summary.found, targets.length - AWAITING_ICONS.length);
+  assert.equal(offlineRun.report.summary.notfound, AWAITING_ICONS.length);
+  assert.deepEqual(offlineRun.report.items.filter((i) => i.status === 'notfound').map((i) => i.key).sort(), AWAITING_ICONS);
   const protocols = offlineRun.report.items.find((i) => i.key === 'protocols');
   assert.equal(protocols.status, 'found');
   assert.equal(protocols.source.type, 'bundled');

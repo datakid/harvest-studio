@@ -27,7 +27,7 @@ await check('T6.1 the fixture CLI run stays inside the runner budget and the bas
   for (let i = 0; i < 3; i++) {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hs-perf-'));
     const start = performance.now();
-    const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--from', path.join(studioDir, 'test', 'fixtures'), '--links', path.join(studioDir, 'config', 'catalogue.json'), '--out', out], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--from', path.join(studioDir, 'test', 'fixtures'), '--links', path.join(studioDir, 'test', 'links.json'), '--out', out], { encoding: 'utf8' });
     times.push(Math.round(performance.now() - start));
     fs.rmSync(out, { recursive: true, force: true });
     assert.equal(r.status, 0, r.stderr);
@@ -42,7 +42,7 @@ await check('T6.1 the fixture CLI run stays inside the runner budget and the bas
 await check('T6.7 the opt-in CLI worker pool writes the same files as the in-process run', () => {
   const run = (extra) => {
     const out = fs.mkdtempSync(path.join(os.tmpdir(), 'hs-pool-'));
-    const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--from', path.join(studioDir, 'test', 'fixtures'), '--links', path.join(studioDir, 'config', 'catalogue.json'), '--out', out, ...extra], { encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [path.join(studioDir, 'cli', 'harvest.mjs'), '--from', path.join(studioDir, 'test', 'fixtures'), '--links', path.join(studioDir, 'test', 'links.json'), '--out', out, ...extra], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     const stamp = /"(generatedAt|checkedAt)": ?"[^"]*"/g;
     const files = Object.fromEntries(fs.readdirSync(out).sort().map((f) => [f, f.endsWith('.json') ? fs.readFileSync(path.join(out, f), 'utf8').replace(stamp, '"$1":0') : fs.readFileSync(path.join(out, f)).toString('base64')]));

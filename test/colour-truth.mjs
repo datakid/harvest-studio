@@ -92,7 +92,7 @@ await check('the tint follows the accent', async () => {
   assert.deepEqual(a.gradient, tintFromHex(a.colour.accent));
 });
 
-const catalogue = JSON.parse(await fs.readFile(path.join(studioDir, 'config', 'catalogue.json'), 'utf8'));
+const catalogue = JSON.parse(await fs.readFile(path.join(studioDir, 'test', 'links.json'), 'utf8'));
 const targets = buildTargets(catalogue);
 const groupOf = new Map(targets.map((t) => [t.key, t.groupId]));
 const separate = (extra = {}, io = localIo()) => runHarvest({ targets, overrides: {} }, { profile: 'launcher', mode: 'separate', now: NOW, local: true, seed: 'a1b2c3d4', preview: true, ...extra }, io);

@@ -2,6 +2,7 @@ import { chromiumPath } from './util.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { Readable } from 'node:stream';
 import { chromium } from 'playwright-core';
 import { serve } from '../scripts/serve.mjs';
@@ -17,11 +18,54 @@ const expected = buildTargets(catalogue).length + Object.keys(extras).length;
 
 const HANG = 'protocols';
 const BAD = 'solver';
-const SLOW = 'to-do';
+const SLOW = 'survival-mirror';
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+const crcTable = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+const crc32 = (buf) => {
+  let c = 0xffffffff;
+  for (const b of buf) c = crcTable[(c ^ b) & 255] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+};
+const chunk = (type, data) => {
+  const body = Buffer.concat([Buffer.from(type), data]);
+  const out = Buffer.alloc(8 + data.length + 4);
+  out.writeUInt32BE(data.length, 0);
+  body.copy(out, 4);
+  out.writeUInt32BE(crc32(body), 8 + data.length);
+  return out;
+};
+const syntheticIcon = (key) => {
+  const size = 96;
+  let h = 7;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const rgb = [(h >>> 3) & 255, (h >>> 11) & 255, (h >>> 19) & 255];
+  const raw = Buffer.alloc((size * 4 + 1) * size);
+  for (let y = 0; y < size; y++) {
+    raw[y * (size * 4 + 1)] = 0;
+    for (let x = 0; x < size; x++) {
+      const inside = (x - 48) ** 2 + (y - 48) ** 2 < 40 ** 2;
+      const bar = Math.abs(x - 48) < 6 + (h % 20) || Math.abs(y - 48) < 6 + ((h >>> 5) % 20);
+      const o = y * (size * 4 + 1) + 1 + x * 4;
+      const c = inside ? (bar ? [255 - rgb[0], 255 - rgb[1], 255 - rgb[2]] : rgb) : [0, 0, 0];
+      raw[o] = c[0];
+      raw[o + 1] = c[1];
+      raw[o + 2] = c[2];
+      raw[o + 3] = inside ? 255 : 0;
+    }
+  }
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(size, 0);
+  head.writeUInt32BE(size, 4);
+  head.set([8, 6, 0, 0, 0], 8);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', head), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
+};
 const iconOf = (key) => {
   const f = path.join(fixturesDir, key + '.png');
-  return fs.readFileSync(fs.existsSync(f) ? f : path.join(studioDir, 'public', 'icon-192.png'));
+  return fs.existsSync(f) ? fs.readFileSync(f) : syntheticIcon(key);
 };
 const reply = (type, body) => ({ status: 200, headers: { 'content-type': type }, body: Readable.from([Buffer.from(body)]), destroy() {} });
 

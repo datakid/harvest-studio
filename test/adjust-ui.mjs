@@ -107,6 +107,15 @@ await check('AU6 adjustments are saved with the project and come back after a re
   assert.equal(a.exclude, true);
 });
 
+await check('AU6b the background controls still work on a restored project', async () => {
+  assert.equal(await page.evaluate((k) => window.__studio.state.records.get(k).hasOriginal, key), true);
+  await page.click('.cell[data-key="' + key + '"]');
+  await page.waitForSelector('#adjust-panel');
+  assert.equal(await page.locator('#adjust-panel .hint-text').count(), 0);
+  await page.locator('#adjust-panel').getByRole('radio', { name: 'Remove' }).click();
+  await waitAdjust((k) => window.__studio.state.records.get(k).adjust.background === 'remove', key);
+});
+
 await check('AU7 no console errors', () => assert.deepEqual(logs.filter((l) => !/Failed to load resource/.test(l)), []));
 
 await browser.close();

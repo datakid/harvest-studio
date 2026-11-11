@@ -237,3 +237,4 @@ pre.code { margin: 0; padding: var(--s3); border-radius: var(--r-sm); background
 }
 
 @media (pointer: coarse) { .btn.small { min-block-size: 40px; } }
+.empty-note { margin: 0; padding: var(--s3) 0; color: var(--muted); font-size: var(--fs-sm); line-height: 1.5; }

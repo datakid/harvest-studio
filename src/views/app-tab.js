@@ -49,7 +49,7 @@ export const appPanel = (recs) => {
       textField('app-name', t('nameLabel'), rec.name, (v) => v && editMeta(rec.key, { name: v })),
       h('div', { class: 'field' }, h('label', { for: 'app-key' }, t('appKey')), h('input', { id: 'app-key', type: 'text', value: rec.key, readonly: true, dir: 'ltr', class: 'mono' })),
       textField('app-url', t('appUrl'), item.url || '', (v) => editMeta(rec.key, { url: v }), { dir: 'ltr', mono: true }),
-      h('div', { class: 'field' }, h('label', { for: 'app-group' }, t('appGroup')), h('input', { id: 'app-group', type: 'text', value: rec.groupId || '', list: 'group-list', dir: 'auto', onChange: (e) => editMeta(rec.key, { groupId: e.target.value.trim() }) }), h('datalist', { id: 'group-list' }, groups.map((g) => h('option', { value: g }))))
+      h('div', { class: 'field' }, h('label', { for: 'app-group' }, t('appGroup')), h('input', { id: 'app-group', type: 'text', value: rec.groupId || '', dir: 'auto', onChange: (e) => editMeta(rec.key, { groupId: e.target.value.trim() }) }), h('div', { class: 'suggest' }, groups.filter((g) => g !== rec.groupId).map((g) => h('button', { type: 'button', dir: 'auto', onClick: () => editMeta(rec.key, { groupId: g }) }, g))))
     ),
     rec.hasImage ? pack(rec) : null,
     h('section', { class: 'insp-section' }, h('button', { class: 'btn danger', type: 'button', 'data-act': 'remove', onClick: () => removeTiles([rec.key]) }, icon('trash', { size: 16 }), t('selRemove')))

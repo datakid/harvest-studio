@@ -79,6 +79,7 @@ export const startHarvest = async () => {
     if (choice === 'once') targets = dropDuplicates(targets);
   }
   state.names = new Map(targets.map((x) => [x.key, x.name || x.key]));
+  state.terms = new Map(targets.map((x) => [x.key, x.terms || []]));
   state.stage = 'busy';
   state.ghosts = targets.length;
   state.busyKeys = targets.map((x) => x.key);

@@ -183,7 +183,7 @@ await check('arabic mode: language is declared, names choose their own direction
   const dirs = await page.$$eval('.cell .name', (els) => els.map((e) => [e.getAttribute('dir'), getComputedStyle(e).direction]));
   assert.ok(dirs.length > 0);
   for (const [attr, computed] of dirs) assert.deepEqual([attr, computed], ['auto', 'ltr']);
-  const css = ['ui/tokens.css', 'ui/components.css', 'views/views.css'].map((f) => fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', f), 'utf8')).join('\n');
+  const css = ['ui/tokens.css', 'ui/components.css', 'ui/controls.css', 'views/views.css'].map((f) => fs.readFileSync(path.join(fixturesDir, '..', '..', 'src', f), 'utf8')).join('\n');
   const physical = css.split('\n').filter((l) => /(margin|padding|border)-(left|right)|(^|[\s;{])(left|right)\s*:|float\s*:|text-align\s*:\s*(left|right)/.test(l) && !/^pre\.code/.test(l));
   assert.deepEqual(physical, []);
 });

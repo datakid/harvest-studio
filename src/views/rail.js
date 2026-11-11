@@ -1,7 +1,7 @@
 import { state, prefs, save, ui, on, emit } from '../store.js';
 import { h, icon, kids } from '../dom.js';
 import { t } from '../i18n.js';
-import { groupsList, smartCounts, similarNow } from '../model.js';
+import { groupsList, smartCounts, similarNow, loadSearch } from '../model.js';
 import { openPolish } from './polish.js';
 
 const SMART_KEYS = [['review', 'smartReview'], ['locked', 'smartLocked'], ['adjusted', 'smartAdjusted'], ['imageOnly', 'smartImageOnly'], ['excluded', 'smartExcluded']];
@@ -28,7 +28,7 @@ const fillRail = (el) => {
     el.append(...kids(toggle, h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('search'), title: t('search'), onClick: () => { prefs.railCollapsed = false; save(); fillRail(el); document.getElementById('search').focus(); } }, icon('search'))));
     return;
   }
-  const search = h('input', { id: 'search', type: 'search', placeholder: t('searchPlaceholder'), 'aria-label': t('search'), value: state.view.q, autocomplete: 'off', spellcheck: false, onInput: (e) => { state.view.q = e.target.value; emit('view'); } });
+  const search = h('input', { id: 'search', type: 'search', placeholder: t('searchPlaceholder'), 'aria-label': t('search'), value: state.view.q, autocomplete: 'off', spellcheck: false, onFocus: loadSearch, onInput: (e) => { state.view.q = e.target.value; emit('view'); } });
   const groups = groupsList();
   const smart = smartCounts();
   const pairs = similarNow().length;

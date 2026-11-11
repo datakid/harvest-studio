@@ -1,4 +1,4 @@
-import { state } from './store.js';
+import { state, emit } from './store.js';
 import { t } from './i18n.js';
 import { similarPairs } from '../core/tints.js';
 
@@ -11,11 +11,12 @@ export const decodeRecord = (r, item) => {
   if (r.trace && r.trace.accepted) rec.mask = 'url("data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">' + (r.trace.layers && r.trace.layers.length > 1 ? r.trace.layers.map((l) => '<path fill="black"' + (l.opacity < 1 ? ' fill-opacity="' + l.opacity + '"' : '') + ' d="' + l.d + '"/>').join('') : '<path fill="black" d="' + r.trace.d + '"/>') + '</svg>') + '")';
   else if (r.glyph) rec.mask = 'url(' + URL.createObjectURL(new Blob([r.glyph], { type: 'image/png' })) + ')';
   delete rec.favicon;
+  delete rec.original;
   delete rec.glyph;
   return rec;
 };
 
-export const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, adjust: r.adjust || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
+export const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hasOriginal: r.hasOriginal === true, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, adjust: r.adjust || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
 
 export const contrastFlag = (rec) => (rec.contrast === 'flagged' ? 'bad' : rec.status === 'default' || rec.status === 'stale' || rec.status === 'blocked' ? 'warn' : null);
 
@@ -101,6 +102,14 @@ const STATUS_ORDER = { notfound: 0, blocked: 1, default: 2, stale: 3, override: 
 
 export const groupOf = (rec) => rec.groupId || '';
 
+let engine = null;
+let loading = null;
+export const loadSearch = () => (loading ||= import('/search.js').then((m) => { engine = m; emit('view'); }, () => { loading = null; }));
+const docOf = (r) => {
+  const it = state.items.get(r.key) || {};
+  return { key: r.key, name: r.name, terms: it.terms || [], url: it.url || '', group: groupOf(r), tint: (r.tint && r.tint[0]) || '' };
+};
+
 export const groupsList = () => {
   const counts = new Map();
   for (const r of state.records.values()) {
@@ -123,7 +132,11 @@ export const visibleKeys = () => {
   let list = [...state.records.values()];
   if (group !== 'all') list = list.filter((r) => groupOf(r) === group);
   if (smart && SMART[smart]) list = list.filter(SMART[smart]);
-  if (needle) list = list.filter((r) => r.name.toLowerCase().includes(needle) || r.key.includes(needle) || hostOf(r).includes(needle));
+  if (needle && engine) return engine.rank(list.map(docOf), needle);
+  if (needle) {
+    loadSearch();
+    list = list.filter((r) => r.name.toLowerCase().includes(needle) || r.key.includes(needle) || hostOf(r).includes(needle));
+  }
   const by = {
     name: (a, b) => a.name.localeCompare(b.name) || (a.key < b.key ? -1 : 1),
     group: (a, b) => groupOf(a).localeCompare(groupOf(b)) || a.name.localeCompare(b.name),

@@ -201,6 +201,46 @@ await check('W11 on a phone the rail is a drawer and the inspector a bottom shee
   await p.context().close();
 });
 
+await check('W13 dropdowns, checkboxes, sliders and colour swatches use the app styling and no native datalist remains', async () => {
+  await page.locator('.cell').nth(3).click();
+  await page.locator('#fine-tune summary').click();
+  await page.click('#export-btn');
+  await page.locator('#exp-tabs button').last().click();
+  const styled = await page.evaluate(() => {
+    const ap = (sel) => [...document.querySelectorAll(sel)].map((e) => getComputedStyle(e).appearance);
+    return { select: ap('select'), check: ap('input[type="checkbox"]:not([role="switch"])'), range: ap('input[type="range"]'), datalists: document.querySelectorAll('datalist').length };
+  });
+  assert.ok(styled.select.length > 0 && styled.select.every((a) => a !== 'auto'), JSON.stringify(styled));
+  assert.ok(styled.check.length > 0 && styled.check.every((a) => a === 'none'), JSON.stringify(styled));
+  assert.ok(styled.range.length > 0 && styled.range.every((a) => a === 'none'), JSON.stringify(styled));
+  assert.equal(styled.datalists, 0);
+  await page.keyboard.press('Escape');
+});
+
+await check('W14 search is fuzzy, reads aliases, addresses and colours, and ranks the best match first', async () => {
+  const p = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await p.goto('http://localhost:4197/');
+  await p.click('#harvest-fihrist');
+  await p.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
+  await p.waitForTimeout(1500);
+  const keys = async (q) => {
+    await p.fill('#search', q);
+    await p.waitForTimeout(500);
+    return p.evaluate(() => [...document.querySelectorAll('.cell')].map((c) => c.dataset.key));
+  };
+  assert.equal((await keys('ledgr'))[0].startsWith('ledger-form'), true);
+  assert.ok((await keys('khargy')).some((k) => k.startsWith('ledger-form')));
+  assert.equal((await keys('harv'))[0], 'harvest-studio');
+  assert.ok((await keys('platen-2zj1')).includes('platen'));
+  assert.ok((await keys('احمر')).length > 0);
+  const red = await keys('red');
+  assert.ok(red.length > 0 && red.length < 40);
+  assert.equal((await keys('zzzzqx')).length, 0);
+  assert.equal(await p.locator('.cell').count(), 0);
+  assert.ok((await keys('')).length === 56);
+  await p.close();
+});
+
 await check('W12 no console errors', () => assert.deepEqual(logs, []));
 
 await browser.close();

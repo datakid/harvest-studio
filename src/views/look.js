@@ -81,7 +81,7 @@ const fineTune = (rec) => {
 
 const paletteSection = (rec) => {
   const body = h('div', { class: 'fine-body', id: 'palette-body' });
-  const section = h('details', { class: 'fine', id: 'palette', open: ui.paletteOpen === null ? prefs.faithful : ui.paletteOpen }, h('summary', null, t('iconColours')), body);
+  const section = h('details', { class: 'fine', id: 'palette', open: ui.paletteOpen !== false }, h('summary', null, t('iconColours')), body);
   let loaded = false;
   const load = async () => {
     if (loaded) return;

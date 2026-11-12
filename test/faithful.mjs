@@ -74,13 +74,12 @@ const tileVar = (page, key, name) => page.evaluate(([k, n]) => getComputedStyle(
 const page = await open();
 const KEY = 'paid-calculator--daleel';
 
-await check('F3 the palette code is only fetched when an icon is expanded', async () => {
+await check('F3 the palette code is only fetched once an icon is selected, and its section opens by default', async () => {
   assert.ok(!requests.includes('/palette.js'), requests.join(' '));
   assert.ok(!requests.includes('/ar.js'), 'the Arabic words are not needed in English');
   await cell(page, KEY).click();
   await page.waitForTimeout(500);
-  assert.equal(await page.evaluate(() => document.getElementById('palette').open), false);
-  await page.click('#palette summary');
+  assert.equal(await page.evaluate(() => document.getElementById('palette').open), true);
   await page.waitForSelector('.pick-swatch');
   assert.ok(requests.includes('/palette.js'));
 });
@@ -140,9 +139,9 @@ await check('F7 two swatches as a gradient show both colours in the tile, and as
   await expand(page);
   const hexes = await page.$$eval('.pick-swatch', (els) => els.map((e) => e.dataset.hex));
   assert.ok(hexes.length >= 2);
-  await page.locator('.pick-swatch').nth(0).click();
-  await page.locator('.pick-swatch').nth(1).click();
-  assert.equal(await page.locator('#pick-kind [aria-checked="true"]').getAttribute('data-value'), 'gradient');
+  assert.equal(await page.locator('#pick-kind [aria-checked="true"]').getAttribute('data-value'), 'flat');
+  await page.click('#pick-kind [data-value="gradient"]');
+  assert.equal(await page.locator('.pick-swatch[aria-pressed="true"]').count(), 2);
   await page.click('#pick-apply');
   await page.waitForTimeout(400);
   const g = await rec(page, KEY);
@@ -152,9 +151,8 @@ await check('F7 two swatches as a gradient show both colours in the tile, and as
   assert.equal(await tileVar(page, KEY, '--tile-lo'), g.tint[2]);
   await cell(page, KEY).click();
   await expand(page);
-  await page.locator('.pick-swatch').nth(0).click();
-  await page.locator('.pick-swatch').nth(1).click();
   await page.click('#pick-kind [data-value="mix"]');
+  assert.equal(await page.locator('.pick-swatch[aria-pressed="true"]').count(), 2);
   await page.click('#pick-apply');
   await page.waitForTimeout(400);
   const m = await rec(page, KEY);
@@ -173,6 +171,23 @@ await check('F8 a picked colour outside the launcher range is flagged only when 
   await page.locator('.pick-swatch').first().click();
   assert.equal(await page.locator('#pick-note').count(), 1);
   await page.evaluate(() => { window.__studio.state.target = 'v3'; });
+});
+
+await check('F8b any colour can join a gradient, and the palette opens by default', async () => {
+  await cell(page, KEY).click();
+  assert.equal(await page.evaluate(() => document.getElementById('palette').open), true);
+  await page.waitForSelector('.pick-swatch');
+  await page.click('#pick-kind [data-value="gradient"]');
+  await page.locator('.pick-swatch[aria-pressed="true"]').first().click();
+  await page.locator('#pick-custom').evaluate((e) => { e.value = '#ff8800'; e.dispatchEvent(new Event('change', { bubbles: true })); });
+  assert.equal(await page.locator('.pick-swatch[data-hex="#ff8800"][aria-pressed="true"]').count(), 1);
+  await page.click('#pick-apply');
+  await page.waitForTimeout(400);
+  const r = await rec(page, KEY);
+  assert.equal(r.pick, 'gradient');
+  assert.ok(r.tint.includes('#ff8800'));
+  await page.keyboard.press('Control+z');
+  await page.waitForTimeout(300);
 });
 
 await check('F9 releasing the kept colour drops the picked gradient', async () => {
@@ -232,7 +247,8 @@ await check('F11 changing colours, mode and faithful in place never swaps the ti
 await check('F12 a picked gradient survives a reload and reopening the project', async () => {
   await cell(page, KEY).click();
   await expand(page);
-  await page.locator('.pick-swatch').nth(0).click();
+  await page.click('#pick-kind [data-value="gradient"]');
+  await page.locator('.pick-swatch').nth(1).click();
   await page.locator('.pick-swatch').nth(2).click();
   await page.click('#pick-apply');
   await page.waitForFunction(() => window.__studio.state.unsaved === false && window.__studio.saved > 0, null, { timeout: 15000 });

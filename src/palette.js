@@ -1,26 +1,41 @@
 export const panel = ({ h, seg, t, colours, mix, fits, outside, apply }) => {
   const root = h('div', { class: 'pick' });
+  const all = colours.map((c) => ({ ...c }));
   let picked = [];
-  let kind = 'gradient';
+  let kind = 'flat';
+  const need = () => {
+    if (kind === 'flat') picked = picked.slice(-1);
+    else
+      for (const c of all) {
+        if (picked.length > 1) break;
+        if (!picked.includes(c.hex)) picked = [...picked, c.hex];
+      }
+  };
   const toggle = (hex) => {
-    picked = picked.includes(hex) ? picked.filter((c) => c !== hex) : [...picked, hex].slice(-3);
+    picked = picked.includes(hex) ? picked.filter((c) => c !== hex) : [...picked, hex].slice(kind === 'flat' ? -1 : -3);
     draw();
   };
+  const custom = (hex) => {
+    if (!all.some((c) => c.hex === hex)) all.push({ hex, share: 0, custom: true });
+    toggle(hex);
+  };
   const draw = () => {
+    need();
     const tint = picked.length ? mix(kind, picked) : null;
-    const flat = picked.length < 2 || kind !== 'gradient';
+    const flat = kind !== 'gradient' || picked.length < 2;
     root.replaceChildren(...[
-      h('p', { class: 'hint-text' }, t('pickHint')),
+      seg(t('iconColours'), [['flat', t('pickSolid')], ['gradient', t('pickGradient')], ['mix', t('pickMix')]], kind, (v) => { kind = v; draw(); }, { id: 'pick-kind' }),
+      h('p', { class: 'hint-text' }, t(kind === 'flat' ? 'pickHintSolid' : 'pickHint')),
       h(
         'div',
         { class: 'row swatches pick-row' },
-        colours.map((c) => {
+        all.map((c) => {
           const n = picked.indexOf(c.hex) + 1;
-          const label = t('pickSwatch', { hex: c.hex, share: Math.round(c.share * 100) });
-          return h('button', { type: 'button', class: 'swatch pick-swatch', style: { background: c.hex }, 'aria-pressed': String(n > 0), 'aria-label': label, title: label, 'data-hex': c.hex, onClick: () => toggle(c.hex) }, n ? h('b', null, String(n)) : null);
-        })
+          const label = c.custom ? c.hex : t('pickSwatch', { hex: c.hex, share: Math.round(c.share * 100) });
+          return h('button', { type: 'button', class: 'swatch pick-swatch', style: { background: c.hex }, 'aria-pressed': String(n > 0), 'aria-label': label, title: label, 'data-hex': c.hex, onClick: () => toggle(c.hex) }, n && kind !== 'flat' ? h('b', null, String(n)) : null);
+        }),
+        h('label', { class: 'pick-add', title: t('pickCustom') }, '+', h('input', { type: 'color', id: 'pick-custom', value: picked[picked.length - 1] || '#808080', 'aria-label': t('pickCustom'), onChange: (e) => custom(e.target.value) }))
       ),
-      picked.length > 1 ? seg(t('iconColours'), [['gradient', t('pickGradient')], ['mix', t('pickMix')]], kind, (v) => { kind = v; draw(); }, { id: 'pick-kind' }) : null,
       tint
         ? h(
             'div',
@@ -38,7 +53,6 @@ export const panel = ({ h, seg, t, colours, mix, fits, outside, apply }) => {
       )
     ].filter(Boolean));
   };
-  if (colours.length) draw();
-  else root.append(h('p', { class: 'hint-text' }, t('paletteNone')));
+  draw();
   return root;
 };

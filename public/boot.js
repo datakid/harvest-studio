@@ -5,5 +5,9 @@ try {
   if (p.lang === 'ar') {
     document.documentElement.lang = 'ar';
     document.documentElement.dir = 'rtl';
+    var l = document.createElement('link');
+    l.rel = 'modulepreload';
+    l.href = '/ar.js';
+    document.head.appendChild(l);
   }
 } catch (e) {}

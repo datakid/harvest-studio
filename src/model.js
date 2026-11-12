@@ -1,4 +1,4 @@
-import { state, emit } from './store.js';
+import { state, client, emit } from './store.js';
 import { t } from './i18n.js';
 import { similarPairs } from '../core/tints.js';
 
@@ -16,7 +16,7 @@ export const decodeRecord = (r, item) => {
   return rec;
 };
 
-export const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hasOriginal: r.hasOriginal === true, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, adjust: r.adjust || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
+export const recordPayload = (r) => ({ key: r.key, appId: r.appId, status: r.status, base: r.base || null, tint: r.tint || null, pick: r.pick || null, sourceTint: r.sourceTint || null, locked: !!r.locked, hasOriginal: r.hasOriginal === true, contrast: r.contrast || null, tight: !!r.tight, groupId: r.groupId || null, colour: r.colour || null, hash: r.hash || null, adjust: r.adjust || null, trace: r.trace || null, favicon: (r.raw && r.raw.favicon) || null, glyph: (r.raw && r.raw.glyph) || null });
 
 export const contrastFlag = (rec) => (rec.contrast === 'flagged' ? 'bad' : rec.status === 'default' || rec.status === 'stale' || rec.status === 'blocked' ? 'warn' : null);
 
@@ -104,6 +104,16 @@ export const groupOf = (rec) => rec.groupId || '';
 
 let engine = null;
 let loading = null;
+const palettes = new Map();
+
+export const loadPalette = async (rec) => {
+  const hit = palettes.get(rec.key);
+  if (hit && hit.hash === rec.hash) return hit.list;
+  const list = ((await client.call('palette', { keys: [rec.key] }))[rec.key]) || [];
+  palettes.set(rec.key, { hash: rec.hash, list });
+  return list;
+};
+
 export const loadSearch = () => (loading ||= import('/search.js').then((m) => { engine = m; emit('view'); }, () => { loading = null; }));
 const docOf = (r) => {
   const it = state.items.get(r.key) || {};

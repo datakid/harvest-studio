@@ -20,6 +20,26 @@ export const h = (tag, props, ...children) => {
 
 export const kids = (...c) => c.flat(Infinity).filter((x) => x !== null && x !== undefined && x !== false);
 
+const shapeOf = (n) => (n.nodeType === 1 ? n.localName + n.id + (n.dataset.group || n.dataset.smart || '') + '(' + [...n.childNodes].map(shapeOf).join() + ')' : '#');
+
+const align = (a, b) => {
+  if (a.nodeType === 3) {
+    if (a.data !== b.data) a.data = b.data;
+    return;
+  }
+  const live = a === document.activeElement;
+  for (const { name, value } of [...b.attributes]) if (a.getAttribute(name) !== value && !(live && name === 'value')) a.setAttribute(name, value);
+  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
+  if (!live && (a.localName === 'select' || a.localName === 'input') && a.type !== 'checkbox' && a.value !== b.value) a.value = b.value;
+  [...a.childNodes].forEach((c, i) => align(c, b.childNodes[i]));
+};
+
+export const patch = (a, b) => {
+  if (shapeOf(a) !== shapeOf(b)) return false;
+  align(a, b);
+  return true;
+};
+
 export const clear = (el) => {
   while (el.firstChild) el.removeChild(el.firstChild);
   return el;

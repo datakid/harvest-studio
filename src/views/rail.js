@@ -1,5 +1,5 @@
 import { state, prefs, save, ui, on, emit } from '../store.js';
-import { h, icon, kids } from '../dom.js';
+import { h, icon, kids, patch } from '../dom.js';
 import { t } from '../i18n.js';
 import { groupsList, smartCounts, similarNow, loadSearch } from '../model.js';
 import { openPolish } from './polish.js';
@@ -19,20 +19,20 @@ export const renderRail = () => {
   return el;
 };
 
-const fillRail = (el) => {
+const fillRail = (el, into = el) => {
   const collapsed = prefs.railCollapsed;
-  el.dataset.collapsed = String(collapsed);
-  el.replaceChildren();
+  into.dataset.collapsed = String(collapsed);
+  into.replaceChildren();
   const toggle = h('button', { class: 'btn icon quiet rail-collapse', id: 'rail-toggle', type: 'button', 'aria-label': collapsed ? t('railShow') : t('railHide'), title: collapsed ? t('railShow') : t('railHide'), onClick: () => { prefs.railCollapsed = !prefs.railCollapsed; save(); fillRail(el); } }, icon('sidebar'));
   if (collapsed) {
-    el.append(...kids(toggle, h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('search'), title: t('search'), onClick: () => { prefs.railCollapsed = false; save(); fillRail(el); document.getElementById('search').focus(); } }, icon('search'))));
+    into.append(...kids(toggle, h('button', { class: 'btn icon quiet', type: 'button', 'aria-label': t('search'), title: t('search'), onClick: () => { prefs.railCollapsed = false; save(); fillRail(el); document.getElementById('search').focus(); } }, icon('search'))));
     return;
   }
   const search = h('input', { id: 'search', type: 'search', placeholder: t('searchPlaceholder'), 'aria-label': t('search'), value: state.view.q, autocomplete: 'off', spellcheck: false, onFocus: loadSearch, onInput: (e) => { state.view.q = e.target.value; emit('view'); } });
   const groups = groupsList();
   const smart = smartCounts();
   const pairs = similarNow().length;
-  el.append(...kids(
+  into.append(...kids(
     h('div', { class: 'rail-head' }, search, toggle),
     groups.length
       ? h('section', { class: 'rail-section' }, h('h2', null, t('groupsTitle')), row(t('groupAll'), state.records.size, state.view.group === 'all', () => { state.view.group = 'all'; emit('view'); }, { 'data-group': 'all' }), groups.map(([g, n]) => row(prettyGroup(g), n, state.view.group === g, () => { state.view.group = state.view.group === g ? 'all' : g; emit('view'); }, { 'data-group': g })))
@@ -51,9 +51,13 @@ const fillRail = (el) => {
 export const refreshRail = () => {
   const el = document.getElementById('rail');
   if (!el) return;
+  const next = el.cloneNode(false);
+  fillRail(el, next);
+  if (patch(el, next)) return;
   const hadFocus = document.activeElement && document.activeElement.id === 'search';
   const pos = hadFocus ? document.activeElement.selectionStart : 0;
-  fillRail(el);
+  el.dataset.collapsed = next.dataset.collapsed;
+  el.replaceChildren(...next.childNodes);
   if (hadFocus) {
     const s = document.getElementById('search');
     s.focus();

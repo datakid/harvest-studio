@@ -119,6 +119,9 @@ pre.code { margin: 0; padding: var(--s3) var(--s4); border-radius: var(--r-md); 
 .tile-art.vivid { background: linear-gradient(150deg, var(--tile-hi), var(--tile) 56%, var(--tile-lo)); }
 .tile-art .glyph { inline-size: 62%; block-size: 62%; background: var(--ink-glyph, #fafafa); -webkit-mask: var(--mask) center / contain no-repeat; mask: var(--mask) center / contain no-repeat; }
 .tile-art img { inline-size: 70%; block-size: 70%; object-fit: contain; }
+.tile-art.faithful { background: repeating-conic-gradient(#c3c7cf 0 25%, #d6d9df 0 50%) 0 0 / calc(var(--size) / 6) calc(var(--size) / 6); }
+.tile-art.faithful.dk { background: repeating-conic-gradient(#555a66 0 25%, #666b77 0 50%) 0 0 / calc(var(--size) / 6) calc(var(--size) / 6); }
+.tile-art.faithful img { inline-size: 100%; block-size: 100%; }
 .tile-art.ghost { background: var(--surface-2); box-shadow: none; animation: shimmer 1.4s ease-in-out infinite; }
 .tile-art.fade { animation: fadein .26s var(--ease) both; }
 @keyframes shimmer { 50% { opacity: .5; } }

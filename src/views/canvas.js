@@ -2,7 +2,7 @@ import { state, prefs, save, on, emit } from '../store.js';
 import { h, icon, kids } from '../dom.js';
 import { t } from '../i18n.js';
 import { seg } from '../ui/seg.js';
-import { tile, theme } from '../ui/tile.js';
+import { paint, theme } from '../ui/tile.js';
 import { contrastFlag, failureText, isExcluded, needsReview, reasonOf, statusKey, visibleKeys } from '../model.js';
 import { clearSelection, selectMany, selectOnly, selectRange, toggleSelect } from '../actions/select.js';
 import { openColours } from './colour-popover.js';
@@ -14,27 +14,47 @@ export const resetCells = () => cells.clear();
 
 const gallery = () => document.querySelector('.work-grid');
 
-const sdot = (rec) => {
-  const flag = contrastFlag(rec);
-  const missing = !rec.hasImage && !rec.ghost;
-  const kind = flag || (missing ? 'warn' : null);
-  return kind ? h('span', { class: 'dot ' + kind, 'aria-hidden': 'true' }) : null;
+const flagOf = (rec) => contrastFlag(rec) || (!rec.hasImage && !rec.ghost ? 'warn' : null);
+
+const slot = (btn, sel, want) => {
+  const cur = btn.querySelector(sel);
+  if (!want) {
+    if (cur) cur.remove();
+    return;
+  }
+  if (!cur) btn.append(want.make());
+  else if (want.sync) want.sync(cur);
 };
 
-const compareChip = (rec) => (state.compare && rec.faviconUrl ? h('img', { class: 'compare-chip', src: rec.faviconUrl, alt: '' }) : null);
-
 const fillCell = (btn, rec) => {
-  btn.replaceChildren(...kids(
-    rec.hasImage ? tile(rec, { size: prefs.tileSize }) : h('span', { class: 'tile-art ghost', style: rec.ghost ? { '--size': prefs.tileSize + 'px' } : { '--size': prefs.tileSize + 'px', animation: 'none' } }),
-    h('span', { class: 'name', dir: 'auto' }, rec.name),
-    sdot(rec),
-    compareChip(rec)
-  ));
-  const why = !rec.hasImage ? failureText(rec) : needsReview(rec) ? reasonOf(rec) : '';
-  btn.title = why || '';
-  btn.setAttribute('aria-label', t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) }));
+  let [art, name] = btn.children;
+  if (!art) {
+    art = h('span');
+    name = h('span', { class: 'name', dir: 'auto' });
+    btn.append(art, name);
+  }
+  if (rec.hasImage) paint(art, rec, { size: prefs.tileSize });
+  else if (art._kind !== 'ghost') {
+    art.className = 'tile-art ghost';
+    art.replaceChildren();
+    art._sig = null;
+    art._kind = 'ghost';
+  }
+  if (!rec.hasImage) {
+    art.style.setProperty('--size', prefs.tileSize + 'px');
+    art.style.animation = rec.ghost ? '' : 'none';
+  }
+  if (name.textContent !== rec.name) name.textContent = rec.name;
+  const flag = flagOf(rec);
+  slot(btn, '.dot', flag && { make: () => h('span', { class: 'dot ' + flag, 'aria-hidden': 'true' }), sync: (d) => { if (d.className !== 'dot ' + flag) d.className = 'dot ' + flag; } });
+  slot(btn, '.compare-chip', state.compare && rec.faviconUrl && { make: () => h('img', { class: 'compare-chip', src: rec.faviconUrl, alt: '' }), sync: (i) => { if (i.getAttribute('src') !== rec.faviconUrl) i.src = rec.faviconUrl; } });
+  const why = (!rec.hasImage ? failureText(rec) : needsReview(rec) ? reasonOf(rec) : '') || '';
+  if (btn.title !== why) btn.title = why;
+  const label = t('tileAria', { name: rec.name, status: t(statusKey(rec.status)) });
+  if (btn.getAttribute('aria-label') !== label) btn.setAttribute('aria-label', label);
   btn.classList.toggle('excluded', isExcluded(rec));
-  btn.setAttribute('aria-selected', String(state.sel.has(rec.key)));
+  const sel = String(state.sel.has(rec.key));
+  if (btn.getAttribute('aria-selected') !== sel) btn.setAttribute('aria-selected', sel);
 };
 
 const onCell = (e, key) => {
@@ -83,7 +103,10 @@ export const syncGallery = () => {
       li = cellEl(state.records.get(k));
       cells.set(k, li);
     }
-    li.style.setProperty('--i', i);
+    if (li._i !== i) {
+      li._i = i;
+      li.style.setProperty('--i', i);
+    }
     if (g.children[i] !== li) g.insertBefore(li, g.children[i] || null);
   });
   const empty = document.getElementById('canvas-empty');
@@ -185,6 +208,7 @@ export const renderToolbar = () =>
     seg(t('colours'), [['vivid', t('vivid')], ['muted', t('muted')]], prefs.colors, (v) => { prefs.colors = v; save(); emit('tiles'); emit('canvas-toolbar'); }),
     seg(t('preview'), [['light', t('themeLight')], ['dark', t('themeDark')]], theme(), (v) => { prefs.tone = v; save(); emit('tiles'); emit('canvas-toolbar'); }),
     seg(t('corners'), [['balanced', t('balanced')], ['soft', t('soft')], ['crisp', t('crisp')]], prefs.corners, (v) => { prefs.corners = v; applyCorners(); save(); emit('tiles'); emit('canvas-toolbar'); }),
+    h('button', { class: 'btn pill', id: 'faithful-btn', type: 'button', title: t('faithfulTip'), 'aria-pressed': String(prefs.faithful), onClick: () => { prefs.faithful = !prefs.faithful; save(); emit('canvas-toolbar'); emit('tiles'); } }, icon('image', { size: 16 }), t('faithful')),
     h('button', { class: 'btn pill', id: 'compare-btn', type: 'button', 'aria-pressed': String(state.compare), onClick: () => { state.compare = !state.compare; emit('canvas-toolbar'); refreshArt(); } }, icon('compare', { size: 16 }), t('compare')),
     h('button', { class: 'btn pill', id: 'colours-btn', type: 'button', 'aria-haspopup': 'dialog', onClick: (e) => openColours(e.currentTarget) }, icon('palette', { size: 16 }), t('colours'))
   );

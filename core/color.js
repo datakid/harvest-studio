@@ -263,7 +263,9 @@ export const clusterScore = (c) => {
   return score;
 };
 
-const clusterHex = (c) => '#' + fromOklab(c.L, c.a, c.b).map((v) => linToSrgb(Math.min(1, Math.max(0, v))).toString(16).padStart(2, '0')).join('');
+const labHex = (L, a, b) => '#' + fromOklab(L, a, b).map((v) => linToSrgb(Math.min(1, Math.max(0, v))).toString(16).padStart(2, '0')).join('');
+
+const clusterHex = (c) => labHex(c.L, c.a, c.b);
 
 export const extractColours = (data, w, h) => {
   const clusters = clusterColours(gridPoints(data, w, h));
@@ -286,6 +288,45 @@ export const extractColours = (data, w, h) => {
     synthetic = true;
   }
   return { accent: clusterHex(accent), gradient: stops, synthetic, share: accent.area, chroma: accent.chroma };
+};
+
+export const PALETTE_MAX = 6;
+export const PALETTE_MIN_AREA = 0.015;
+export const PALETTE_MERGE = 0.06;
+
+export const paletteOf = (data, w, h) => {
+  const kept = [];
+  for (const c of clusterColours(gridPoints(data, w, h), PALETTE_MAX + 1).sort((x, y) => y.area - x.area)) {
+    if (c.area < PALETTE_MIN_AREA) continue;
+    const near = kept.find((o) => labDistance(o, c) < PALETTE_MERGE);
+    if (near) near.area += c.area;
+    else kept.push({ L: c.L, a: c.a, b: c.b, area: c.area });
+  }
+  const total = kept.reduce((m, o) => m + o.area, 0) || 1;
+  return kept.slice(0, PALETTE_MAX).map((o) => ({ hex: clusterHex(o), share: Math.round((o.area / total) * 1000) / 1000 }));
+};
+
+export const PICK_MAX = 3;
+
+const stopsOf = (hex) => {
+  const [L, C, h] = hexToLch(hex);
+  const turn = (d) => (d * Math.PI) / 180;
+  return [hex.toLowerCase(), oklchHex(Math.min(0.98, L + 0.14), Math.min(C * 0.75, 0.11), h + turn(-11)), oklchHex(Math.max(0.02, L - 0.21), Math.min(C, 0.12), h + turn(13))];
+};
+
+const mixOf = (hexes) => {
+  const labs = hexes.map(hexToLab);
+  return labHex(...[0, 1, 2].map((i) => labs.reduce((m, l) => m + l[i], 0) / labs.length));
+};
+
+export const pickTint = (kind, colours) => {
+  const hexes = colours.filter(isHex).slice(0, PICK_MAX);
+  if (!hexes.length) return null;
+  if (kind === 'gradient' && hexes.length > 1) {
+    const ordered = [...hexes].sort((a, b) => hexToLab(a)[0] - hexToLab(b)[0]);
+    return [hexes.length === 2 ? mixOf(ordered) : ordered[1], ordered[ordered.length - 1], ordered[0]];
+  }
+  return stopsOf(hexes.length > 1 ? mixOf(hexes) : hexes[0]);
 };
 
 export const tintFromOklch = (c, h) => [oklchHex(0.66, c, h), oklchHex(0.86, Math.min(c * 0.75, 0.11), h), oklchHex(0.38, Math.min(c, 0.12), h)];

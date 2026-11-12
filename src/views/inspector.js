@@ -1,7 +1,7 @@
 import { state, ui, on } from '../store.js';
 import { h, icon, kids } from '../dom.js';
 import { t } from '../i18n.js';
-import { tile } from '../ui/tile.js';
+import { tile, paint } from '../ui/tile.js';
 import { selectedRecs, statusKey } from '../model.js';
 import { retryLive } from '../actions/records.js';
 import { clearSelection } from '../actions/select.js';
@@ -126,9 +126,8 @@ export const refreshInspectorArt = () => {
   if (!el || recs.length !== 1 || !recs[0].hasImage) return;
   const rec = recs[0];
   const headTile = el.querySelector('.insp-head > .tile-art');
-  if (headTile) headTile.replaceWith(tile(rec, { size: 56 }));
-  const pv = el.querySelector('.look-previews');
-  if (pv) pv.replaceWith(previews(rec));
+  if (headTile) paint(headTile, rec, { size: 56 });
+  el.querySelectorAll('.look-previews .preview-cell > .tile-art').forEach((a, i) => paint(a, rec, { size: 52, colors: i < 2 ? 'vivid' : 'muted', theme: i % 2 ? 'dark' : 'light', faithful: false }));
 };
 
 on('inspector', renderInspector);

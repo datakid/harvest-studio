@@ -4,11 +4,11 @@ import { t } from '../i18n.js';
 import { seg } from '../ui/seg.js';
 import { toggle, info, colourField, swatch } from '../ui/controls.js';
 import { tile, trioEl } from '../ui/tile.js';
-import { sharedValue, defaultScale } from '../model.js';
-import { setTint, setTintLive, setLocked, setStop, setStopLive, commitColour } from '../actions/colour.js';
+import { sharedValue, defaultScale, loadPalette } from '../model.js';
+import { setTint, setTintLive, setLocked, setStop, setStopLive, setPick, commitColour } from '../actions/colour.js';
 import { adjustLive, adjustCommit } from '../actions/adjust.js';
 import { cleanAdjust, SCALE_MIN, SCALE_MAX, OFFSET_MAX, WEIGHT_MIN, WEIGHT_MAX } from '../../core/adjust.js';
-import { hexToLch, lchToHex } from '../../core/color.js';
+import { hexToLch, lchToHex, pickTint, v4Violations } from '../../core/color.js';
 
 const pct = (v) => Math.round(v * 1000) / 10;
 
@@ -40,7 +40,7 @@ export const previews = (rec) => {
   return h(
     'div',
     { class: 'look-previews', 'aria-label': t('preview'), role: 'group' },
-    h('div', { class: 'preview-tiles' }, sizes.map(([colors, tone]) => h('span', { class: 'preview-cell', 'data-tone': tone }, tile(rec, { size: 52, colors, theme: tone })))),
+    h('div', { class: 'preview-tiles' }, sizes.map(([colors, tone]) => h('span', { class: 'preview-cell', 'data-tone': tone }, tile(rec, { size: 52, colors, theme: tone, faithful: false })))),
     h('div', { class: 'preview-favicons' }, rec.faviconUrl ? [h('span', { class: 'fav fav16', title: t('favicon16') }, h('img', { src: rec.faviconUrl, alt: '', width: 16, height: 16 })), h('span', { class: 'fav fav32', title: t('favicon32') }, h('img', { src: rec.faviconUrl, alt: '', width: 32, height: 32 }))] : null)
   );
 };
@@ -79,6 +79,28 @@ const fineTune = (rec) => {
   );
 };
 
+const paletteSection = (rec) => {
+  const body = h('div', { class: 'fine-body', id: 'palette-body' });
+  const section = h('details', { class: 'fine', id: 'palette', open: ui.paletteOpen === null ? prefs.faithful : ui.paletteOpen }, h('summary', null, t('iconColours')), body);
+  let loaded = false;
+  const load = async () => {
+    if (loaded) return;
+    loaded = true;
+    try {
+      const [colours, m] = await Promise.all([loadPalette(rec), import('/palette.js')]);
+      if (section.isConnected) body.replaceChildren(m.panel({ h, seg, t, colours, mix: pickTint, fits: (tint) => !v4Violations(tint).length, outside: () => state.target === 'v4', apply: (kind, picked) => setPick(rec.key, kind, picked) }));
+    } catch {
+      loaded = false;
+    }
+  };
+  section.addEventListener('toggle', () => {
+    ui.paletteOpen = section.open;
+    if (section.open) load();
+  });
+  if (section.open) load();
+  return section;
+};
+
 const colourSection = (recs) => {
   const imaged = recs.filter((r) => r.hasImage);
   if (!imaged.length) return null;
@@ -98,6 +120,7 @@ const colourSection = (recs) => {
     h('div', { class: 'colour-row' }, colourField({ value: first, label: t('pickColour'), id: 'colour-hex', onLive: (hex) => setTintLive(keys, hex), onCommit: apply }), eyedropper(apply), single ? trioEl(single) : null),
     single && single.base ? h('div', { class: 'row from-icon', 'aria-label': t('fromIcon') }, h('span', { class: 'label' }, t('fromIcon')), [...new Set(single.base)].map((c) => swatch(c, { onPick: apply }))) : null,
     h('div', { class: 'row spread' }, toggle({ id: 'keep-colour', label: t('keepColour'), checked: keptAll, tip: t('keepColourTip'), onChange: (on) => { setLocked(keys, on); emit('inspector'); } }), keptAny ? h('button', { class: 'btn small', type: 'button', 'data-act': 'reset-colour', onClick: () => { setLocked(keys, false); emit('inspector'); } }, icon('reset', { size: 14 }), t('resetColour')) : null),
+    single ? paletteSection(single) : null,
     single && single.tint ? fineTune(single) : null
   );
   return section;

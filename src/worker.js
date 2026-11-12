@@ -7,6 +7,7 @@ import {
   cleanAdjust,
   traceGlyphAuto,
   tintV4,
+  paletteOf,
   readPrevious,
   decodeImage,
   pixelHash,
@@ -302,6 +303,15 @@ const handlers = {
       if (r.glyph) transfer.push(r.glyph.buffer);
     }
     return { value: { records: out, items, seed: seed || null, cell: cell || DEFAULT_CELL, v4: [...prev.values()].some((v) => v.v4) }, transfer };
+  },
+
+  async palette(p) {
+    const out = {};
+    for (const key of p.keys) {
+      const img = (records.get(key) || {}).original || (records.get(key) || {}).image;
+      if (img) out[key] = paletteOf(img.data, img.width, img.height);
+    }
+    return out;
   },
 
   async originals() {

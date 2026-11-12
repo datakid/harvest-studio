@@ -170,6 +170,12 @@ pre.code { margin: 0; padding: var(--s3); border-radius: var(--r-sm); background
 .pal-chip.saved { padding: 0; overflow: hidden; }
 .pal-chip.saved > button { display: inline-flex; align-items: center; gap: var(--s2); border: 0; background: transparent; padding: 0 var(--s2) 0 var(--s3); min-block-size: 32px; font-size: var(--fs-xs); }
 .pal-chip .del { padding: 0 var(--s2); color: var(--muted); }
+.pick { display: grid; gap: var(--s3); }
+.pick-row { flex-wrap: wrap; }
+.pick-swatch { inline-size: 36px; block-size: 36px; display: grid; place-items: center; }
+.pick-swatch b { position: absolute; inset-block-start: -6px; inset-inline-end: -6px; inline-size: 16px; block-size: 16px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--on-ink); font-size: 10px; font-weight: 600; }
+.pick-result { align-items: center; gap: var(--s3); }
+.pick-bar { flex: 1; block-size: 22px; border-radius: var(--r-xs); border: 1px solid var(--line-strong); }
 .strip { display: inline-flex; border-radius: var(--r-xs); overflow: hidden; }
 .strip i { inline-size: 12px; block-size: 14px; display: block; }
 .pal-sw { position: relative; inline-size: 28px; block-size: 28px; border-radius: 8px; box-shadow: 0 0 0 1px var(--line-strong); }

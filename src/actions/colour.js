@@ -1,7 +1,7 @@
 import { state, prefs, save, history, emit } from '../store.js';
 import { t } from '../i18n.js';
 import { recolour, randomSeed, setManualColour } from '../colour.js';
-import { passesContrast } from '../../core/color.js';
+import { passesContrast, pickTint } from '../../core/color.js';
 import { cleanPalette } from '../../core/palettes.js';
 import { toast, announce } from '../ui/toast.js';
 import { scheduleSave } from './project.js';
@@ -12,7 +12,7 @@ export const applyColours = (only = null) => {
   return res;
 };
 
-const FIELDS = ['tint', 'sourceTint', 'locked', 'contrast', 'tight', 'grouped'];
+const FIELDS = ['tint', 'sourceTint', 'locked', 'contrast', 'tight', 'grouped', 'pick'];
 const SETTINGS = ['mode', 'monoColor', 'monoVary', 'spread', 'paletteColors', 'paletteVary'];
 
 export const world = () => ({
@@ -74,6 +74,22 @@ export const setTintLive = (keys, hex) => {
 export const setTint = (keys, hex) => {
   setTintLive(keys, hex);
   endEdit();
+  emit('colour-state');
+};
+
+export const setPick = (key, kind, colours) => {
+  const rec = state.records.get(key);
+  const tint = pickTint(kind, colours);
+  if (!rec || !rec.hasImage || !tint) return;
+  edit(() => {
+    rec.tint = tint;
+    rec.pick = kind === 'gradient' && colours.length > 1 ? 'gradient' : 'flat';
+    rec.locked = true;
+    rec.contrast = null;
+    state.dirty = true;
+    scheduleSave();
+    emit('tiles');
+  });
   emit('colour-state');
 };
 

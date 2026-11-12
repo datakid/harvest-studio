@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, finish, studioDir } from './util.mjs';
 import { dictionaries } from '../src/i18n.js';
+import ar from '../src/i18n-ar.js';
 
-const { en, ar } = dictionaries;
+const { en } = dictionaries;
 
 await check('I1 English and Arabic have exactly the same keys', () => {
   const only = (a, b) => Object.keys(a).filter((k) => !(k in b));
@@ -34,7 +35,7 @@ await check('I4 labels stay within 40 characters unless they are errors, confirm
 });
 
 const files = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(path.join(dir, e.name)) : e.name.endsWith('.js') ? [path.join(dir, e.name)] : []));
-const sources = files(path.join(studioDir, 'src')).filter((f) => !f.endsWith('i18n.js'));
+const sources = files(path.join(studioDir, 'src')).filter((f) => !/i18n(-ar)?\.js$/.test(f));
 
 await check('I5 every key the interface asks for exists in both languages', () => {
   const missing = [];

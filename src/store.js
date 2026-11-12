@@ -5,7 +5,7 @@ import { DEFAULT_SEED } from '../core/tints.js';
 import { createHistory } from './history.js';
 
 export const prefs = loadPrefs();
-setLang(prefs.lang);
+await setLang(prefs.lang);
 
 export const client = createClient();
 
@@ -57,7 +57,7 @@ export const state = {
   ghosts: 0
 };
 
-export const ui = { harmonyKind: 'analogous', harmonyBase: null, paletteName: '', tab: 'look', railOpen: false };
+export const ui = { paletteOpen: null, harmonyKind: 'analogous', harmonyBase: null, paletteName: '', tab: 'look', railOpen: false };
 
 export const mem = { launcherBuild: null };
 

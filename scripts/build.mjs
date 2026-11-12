@@ -50,8 +50,8 @@ const common = {
   logLevel: 'warning'
 };
 
-await build({ ...common, external: ['node:*', '/search.js'], entryPoints: { app: path.join(root, 'src/main.js'), worker: path.join(root, 'src/worker.js') }, outdir: dist });
-await build({ ...common, entryPoints: { search: path.join(root, 'src/search.js') }, outdir: dist });
+await build({ ...common, external: ['node:*', '/search.js', '/palette.js', '/ar.js'], entryPoints: { app: path.join(root, 'src/main.js'), worker: path.join(root, 'src/worker.js') }, outdir: dist });
+await build({ ...common, entryPoints: { search: path.join(root, 'src/search.js'), palette: path.join(root, 'src/palette.js'), ar: path.join(root, 'src/i18n-ar.js') }, outdir: dist });
 
 const { WASM_FILES } = await import('../core/runtime.js');
 for (const [id, spec] of Object.entries(WASM_FILES)) await fs.copyFile(coreRequire.resolve(spec), path.join(dist, 'wasm', id + '.wasm'));

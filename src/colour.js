@@ -1,5 +1,5 @@
 import { applyMode, guardContrast } from '../core/tints.js';
-import { tintFromHex, tintV4, v4Violations, passesContrast, launcherTile, hexToLch, oklchHex } from '../core/color.js';
+import { tintFromHex, tintV4, v4Violations, passesContrast, launcherTile, hexToLch, oklchHex, contrastRatio } from '../core/color.js';
 
 export const randomSeed = () => {
   const a = new Uint32Array(1);
@@ -39,6 +39,7 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread, pal
     r.tint = e.tint || null;
     r.sourceTint = r.locked ? r.sourceTint : e.sourceTint || r.base || null;
     r.contrast = e.contrast || null;
+    if (!r.locked) r.pick = null;
     r.tight = tight.has(r.key);
     r.grouped = grouped.has(r.key);
   }
@@ -48,6 +49,7 @@ export const recolour = (records, { mode, seed, monoColor, monoVary, spread, pal
 export const setManualColour = (rec, hex, target = 'v3') => {
   rec.tint = target === 'v4' ? tintV4(hex) : tintFromHex(hex);
   rec.locked = true;
+  rec.pick = null;
   rec.contrast = passesContrast(rec.tint) ? null : 'flagged';
 };
 
@@ -55,7 +57,11 @@ export const effectiveTheme = (pref) => (pref === 'light' || pref === 'dark' ? p
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-export const tileColours = (tint, { colors, theme }) => {
+export const tileColours = (tint, { colors, theme, pick = null }) => {
+  if (pick && colors !== 'muted' && tint && tint[0]) {
+    const [tile, hi, lo] = pick === 'gradient' ? tint : [tint[0], tint[0], tint[0]];
+    return { tile, hi, lo, ink: contrastRatio('#fafafa', tile) >= 3 ? '#fafafa' : '#17171a', vivid: true };
+  }
   const c1 = (tint && tint[0]) || '#8c95b6';
   const [L, C, h] = hexToLch(c1);
   if (colors === 'muted') {

@@ -1,5 +1,6 @@
 export default {
   appName: 'استوديو الحصاد',
+  heroTag: 'أيقونات حقيقية تدخل، وجاهزة للمشغّل تخرج',
   close: 'إغلاق',
   save: 'احفظ',
   cancel: 'إلغاء',
@@ -92,7 +93,7 @@ export default {
   dupKeep: 'أبقِ الكل · {n}',
   dupCancel: 'إلغاء',
   dupMore: '+{n} أخرى',
-  searchPlaceholder: 'الاسم أو العنوان أو اللون',
+  searchPlaceholder: 'الاسم، الرابط، اللون',
   groupsTitle: 'المجموعات',
   filtersTitle: 'عوامل التصفية',
   groupAll: 'الكل',

@@ -16,6 +16,9 @@
   --stage: light-dark(oklch(.955 .005 85), oklch(.15 .007 165));
   --focus: var(--accent);
   --scrim: oklch(.15 .01 165 / .45);
+  --sig: linear-gradient(90deg, oklch(.76 .12 172), oklch(.68 .14 250), oklch(.7 .15 318));
+  --glow: light-dark(oklch(.62 .12 175 / .34), oklch(.7 .12 175 / .3));
+  --dots: light-dark(oklch(.24 .012 165 / .09), oklch(.94 .008 95 / .07));
 
   --r-xs: 6px;
   --r-sm: 10px;

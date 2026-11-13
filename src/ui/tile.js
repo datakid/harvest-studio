@@ -6,12 +6,12 @@ export const theme = () => (prefs.tone === 'light' || prefs.tone === 'dark' ? pr
 
 const still = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-export const paint = (el, rec, { size = 60, mask = null, tint = null, colors = prefs.colors, theme: tone = theme(), faithful = prefs.faithful } = {}) => {
+export const paint = (el, rec, { size = 60, mask = null, tint = null, colors = prefs.colors, theme: tone = theme(), faithful = prefs.faithful, pick } = {}) => {
   const m = mask || (rec && rec.mask);
   const url = rec && rec.faviconUrl;
   const real = faithful && url;
   const kind = real ? 'real' : m ? 'glyph' : url ? 'img' : 'none';
-  const col = tileColours(tint || (rec && rec.tint), { colors, theme: tone, pick: tint || !rec ? null : rec.pick });
+  const col = tileColours(tint || (rec && rec.tint), { colors, theme: tone, pick: pick !== undefined ? pick : tint || !rec ? null : rec.pick });
   const sig = [kind, real ? tone : '', size, col.tile, col.hi, col.lo, col.ink, col.vivid, kind === 'glyph' ? m : kind === 'none' ? '' : url].join('|');
   if (el._sig === sig) return el;
   const was = el._kind;

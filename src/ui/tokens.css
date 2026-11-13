@@ -16,7 +16,7 @@
   --stage: light-dark(oklch(.955 .005 85), oklch(.15 .007 165));
   --focus: var(--accent);
   --scrim: oklch(.15 .01 165 / .45);
-  --sig: linear-gradient(90deg, oklch(.76 .12 172), oklch(.68 .14 250), oklch(.7 .15 318));
+  --logo: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect width=%2264%22 height=%2264%22 rx=%2216%22 fill=%22%231A211E%22/%3E%3Cpath d=%22M32 55V36%22 fill=%22none%22 stroke=%22%23F1EFE8%22 stroke-width=%224.5%22 stroke-linecap=%22round%22/%3E%3Cpath d=%22M32 39C19 40 11 32 12 17C27 16 35 27 32 39Z%22 fill=%22%23A9BFB1%22/%3E%3Cpath d=%22M32 38C31 22 40 11 53 10C55 25 47 37 32 38Z%22 fill=%22%237FA08E%22/%3E%3C/svg%3E");
   --glow: light-dark(oklch(.62 .12 175 / .34), oklch(.7 .12 175 / .3));
   --dots: light-dark(oklch(.24 .012 165 / .09), oklch(.94 .008 95 / .07));
 

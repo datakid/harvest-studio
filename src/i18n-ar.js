@@ -1,6 +1,5 @@
 export default {
   appName: 'استوديو الحصاد',
-  heroTag: 'أيقونات حقيقية تدخل، وجاهزة للمشغّل تخرج',
   close: 'إغلاق',
   save: 'احفظ',
   cancel: 'إلغاء',

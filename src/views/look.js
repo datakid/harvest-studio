@@ -3,12 +3,12 @@ import { h, icon } from '../dom.js';
 import { t } from '../i18n.js';
 import { seg } from '../ui/seg.js';
 import { toggle, info, colourField, swatch } from '../ui/controls.js';
-import { tile, trioEl } from '../ui/tile.js';
+import { tile, trioEl, paint } from '../ui/tile.js';
 import { sharedValue, defaultScale, loadPalette } from '../model.js';
 import { setTint, setTintLive, setLocked, setStop, setStopLive, setPick, commitColour } from '../actions/colour.js';
 import { adjustLive, adjustCommit } from '../actions/adjust.js';
 import { cleanAdjust, SCALE_MIN, SCALE_MAX, OFFSET_MAX, WEIGHT_MIN, WEIGHT_MAX } from '../../core/adjust.js';
-import { hexToLch, lchToHex, pickTint, v4Violations } from '../../core/color.js';
+import { hexToLch, lchToHex, pickTint, gradientIdeas, v4Violations } from '../../core/color.js';
 
 const pct = (v) => Math.round(v * 1000) / 10;
 
@@ -88,7 +88,7 @@ const paletteSection = (rec) => {
     loaded = true;
     try {
       const [colours, m] = await Promise.all([loadPalette(rec), import('/palette.js')]);
-      if (section.isConnected) body.replaceChildren(m.panel({ h, seg, t, colours, mix: pickTint, fits: (tint) => !v4Violations(tint).length, outside: () => state.target === 'v4', apply: (kind, picked) => setPick(rec.key, kind, picked) }));
+      if (section.isConnected) body.replaceChildren(m.panel({ h, seg, t, colours, mix: pickTint, ideas: gradientIdeas, preview: (el, tint, kind) => paint(el, rec, { size: 72, tint, pick: kind === 'gradient' ? 'gradient' : 'flat' }), fits: (tint) => !v4Violations(tint).length, outside: () => state.target === 'v4', apply: (kind, picked) => setPick(rec.key, kind, picked) }));
     } catch {
       loaded = false;
     }

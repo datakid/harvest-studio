@@ -1,6 +1,5 @@
 const en = {
   appName: 'Harvest Studio',
-  heroTag: 'Real favicons in, launcher icons out',
   close: 'Close',
   save: 'Save',
   cancel: 'Cancel',

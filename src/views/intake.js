@@ -194,7 +194,6 @@ export const renderIntake = () => {
     'div',
     { class: 'intake-col' },
     h('h1', { class: 'hero' }, t('appName')),
-    h('p', { class: 'hero-tag' }, t('heroTag')),
     h(
       'form',
       { class: 'intake-field', onSubmit: (e) => { e.preventDefault(); startHarvest(); } },

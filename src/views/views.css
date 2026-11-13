@@ -6,7 +6,6 @@ main[data-stage="intake"] { background: radial-gradient(52% 38% at 50% 0%, color
 .intake { display: grid; place-items: start center; padding: clamp(40px, 11dvh, 120px) var(--s4) var(--s8); }
 .hero { display: flex; align-items: center; justify-content: center; gap: var(--s3); margin: 0; font-size: var(--fs-xl); font-weight: 600; letter-spacing: -.01em; }
 .hero::before { content: ''; inline-size: 30px; block-size: 30px; border-radius: 9px; background: var(--logo) center / contain no-repeat; box-shadow: 0 0 0 1px var(--line-strong), 0 10px 24px -10px var(--glow); }
-.hero-tag { margin: calc(var(--s2) * -1) 0 var(--s2); text-align: center; color: var(--muted); font-size: var(--fs-sm); }
 .intake-col { inline-size: min(720px, 100%); display: grid; gap: var(--s4); }
 .intake-field { display: grid; gap: var(--s3); padding: var(--s4); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--r-xl); box-shadow: 0 1px 0 rgba(255,255,255,.5) inset, 0 30px 60px -36px var(--glow); transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease); }
 .intake-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent), 0 30px 60px -32px var(--glow); }

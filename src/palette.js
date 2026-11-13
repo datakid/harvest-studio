@@ -1,8 +1,11 @@
-export const panel = ({ h, seg, t, colours, mix, fits, outside, apply }) => {
+export const panel = ({ h, seg, t, colours, mix, ideas, preview, fits, outside, apply }) => {
   const root = h('div', { class: 'pick' });
   const all = colours.map((c) => ({ ...c }));
   let picked = [];
   let kind = 'flat';
+  const plate = h('span');
+  const suggestions = ideas(colours.map((c) => c.hex));
+  const hint = { flat: 'pickHintSolid', gradient: 'pickGradientTip', mix: 'pickMixTip' };
   const need = () => {
     if (kind === 'flat') picked = picked.slice(-1);
     else
@@ -22,10 +25,10 @@ export const panel = ({ h, seg, t, colours, mix, fits, outside, apply }) => {
   const draw = () => {
     need();
     const tint = picked.length ? mix(kind, picked) : null;
-    const flat = kind !== 'gradient' || picked.length < 2;
+    if (tint) preview(plate, tint, kind === 'gradient' && picked.length > 1 ? 'gradient' : 'flat');
     root.replaceChildren(...[
       seg(t('iconColours'), [['flat', t('pickSolid')], ['gradient', t('pickGradient')], ['mix', t('pickMix')]], kind, (v) => { kind = v; draw(); }, { id: 'pick-kind' }),
-      h('p', { class: 'hint-text' }, t(kind === 'flat' ? 'pickHintSolid' : 'pickHint')),
+      h('p', { class: 'hint-text' }, t(hint[kind])),
       h(
         'div',
         { class: 'row swatches pick-row' },
@@ -40,8 +43,19 @@ export const panel = ({ h, seg, t, colours, mix, fits, outside, apply }) => {
         ? h(
             'div',
             { class: 'row pick-result' },
-            h('span', { class: 'pick-bar', 'aria-hidden': 'true', style: { background: flat ? tint[0] : 'linear-gradient(90deg,' + tint[2] + ',' + tint[0] + ',' + tint[1] + ')' } }),
-            h('code', { dir: 'ltr' }, tint[0])
+            plate,
+            h('code', { dir: 'ltr' }, tint[0]),
+            kind === 'gradient' && picked.length > 1 ? h('button', { class: 'btn small quiet', type: 'button', id: 'pick-flip', onClick: () => { picked = picked.slice().reverse(); draw(); } }, t('pickFlip')) : null
+          )
+        : null,
+      kind === 'gradient' && suggestions.length
+        ? h(
+            'div',
+            { class: 'row pick-ideas', role: 'group', 'aria-label': t('pickIdeas') },
+            suggestions.map((hexes) => {
+              const [mid, hi, lo] = mix('gradient', hexes);
+              return h('button', { type: 'button', class: 'pick-idea', style: { background: 'linear-gradient(150deg,' + hi + ',' + mid + ' 56%,' + lo + ')' }, title: hexes.join(' → '), 'aria-label': hexes.join(' → '), onClick: () => { picked = hexes.slice(); draw(); } });
+            })
           )
         : null,
       tint && outside() && !fits(tint) ? h('p', { class: 'hint-text', id: 'pick-note' }, t('pickOutsideTip')) : null,

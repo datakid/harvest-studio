@@ -82,7 +82,7 @@ button.pill { border: 0; cursor: pointer; min-height: 28px; padding: 0 var(--s3)
 kbd { font: 500 11px/1 var(--font); padding: 3px 6px; border-radius: var(--r-xs); border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--muted); display: inline-block; min-width: 20px; text-align: center; }
 
 .progress { block-size: 2px; background: transparent; overflow: hidden; }
-.progress i { display: block; block-size: 100%; inline-size: 0; background: var(--sig); border-radius: var(--r-pill); transition: inline-size .2s var(--ease); }
+.progress i { display: block; block-size: 100%; inline-size: 0; background: var(--accent); border-radius: var(--r-pill); transition: inline-size .2s var(--ease); }
 .progress-text { font-size: var(--fs-sm); color: var(--muted); }
 
 .popover { position: fixed; z-index: 90; background: var(--surface-raised); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-pop); padding: var(--s4); display: grid; gap: var(--s3); inline-size: min(340px, calc(100vw - 24px)); max-block-size: min(560px, calc(100dvh - 24px)); overflow: auto; overscroll-behavior: contain; }

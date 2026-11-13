@@ -316,16 +316,32 @@ const stopsOf = (hex) => {
 
 const mixOf = (hexes) => {
   const labs = hexes.map(hexToLab);
-  return labHex(...[0, 1, 2].map((i) => labs.reduce((m, l) => m + l[i], 0) / labs.length));
+  const [L, a, b] = [0, 1, 2].map((i) => labs.reduce((m, l) => m + l[i], 0) / labs.length);
+  if (hexes.length < 2) return labHex(L, a, b);
+  const lch = hexes.map(hexToLch);
+  const want = lch.reduce((m, c) => m + c[1], 0) / lch.length;
+  const have = Math.hypot(a, b);
+  if (have >= want) return labHex(L, a, b);
+  const lead = lch.reduce((m, c) => (c[1] > m[1] ? c : m));
+  const hue = have > 0.01 ? Math.atan2(b, a) : lead[2];
+  return oklchHex(L, want, hue);
+};
+
+export const gradientIdeas = (colours) => {
+  const list = colours.filter(isHex).slice(0, 5);
+  const lightFirst = (a, b) => hexToLab(b)[0] - hexToLab(a)[0];
+  const apart = (a, b) => Math.hypot(...hexToLab(a).map((v, i) => v - hexToLab(b)[i])) > 0.09;
+  const out = [];
+  for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) if (apart(list[i], list[j])) out.push([list[i], list[j]].sort(lightFirst));
+  const ideas = out.slice(0, 4);
+  if (list.length > 2) ideas.push(list.slice(0, 3).sort(lightFirst));
+  return ideas;
 };
 
 export const pickTint = (kind, colours) => {
   const hexes = colours.filter(isHex).slice(0, PICK_MAX);
   if (!hexes.length) return null;
-  if (kind === 'gradient' && hexes.length > 1) {
-    const ordered = [...hexes].sort((a, b) => hexToLab(a)[0] - hexToLab(b)[0]);
-    return [hexes.length === 2 ? mixOf(ordered) : ordered[1], ordered[ordered.length - 1], ordered[0]];
-  }
+  if (kind === 'gradient' && hexes.length > 1) return [hexes.length === 2 ? mixOf(hexes) : hexes[1], hexes[0], hexes[hexes.length - 1]].map((c) => c.toLowerCase());
   return stopsOf(hexes.length > 1 ? mixOf(hexes) : hexes[0]);
 };
 

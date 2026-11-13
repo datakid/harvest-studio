@@ -33,10 +33,14 @@ await check('F2 picking one, two or three colours gives an exact solid, a gradie
   const lMid = hexToLab(gradient[0])[0];
   assert.ok(lMid > hexToLab('#101010')[0] && lMid < hexToLab('#ffcc00')[0]);
   const three = pickTint('gradient', ['#202020', '#e0e0e0', '#808080']);
-  assert.deepEqual(three, ['#808080', '#e0e0e0', '#202020']);
+  assert.deepEqual(three, ['#e0e0e0', '#202020', '#808080']);
+  assert.deepEqual(pickTint('gradient', ['#808080', '#e0e0e0', '#202020']), ['#e0e0e0', '#808080', '#202020']);
   const mixed = pickTint('mix', ['#ff0000', '#0000ff']);
-  const direct = pickTint('flat', ['#8c53a2']);
-  assert.equal(mixed[0], direct[0]);
+  const plain = hexToLab(mixed[0]);
+  const [ra, rb] = [hexToLab('#ff0000'), hexToLab('#0000ff')];
+  assert.ok(Math.hypot(plain[1], plain[2]) > Math.hypot((ra[1] + rb[1]) / 2, (ra[2] + rb[2]) / 2));
+  assert.ok(pickTint('mix', ['#ff0000', '#00ffff']).every(isHex));
+  assert.equal(pickTint('mix', ['#e0e0e0', '#202020'])[0].length, 7);
   assert.equal(pickTint('mix', ['#123456', 'nope'])[0], '#123456');
   assert.equal(pickTint('gradient', []), null);
   assert.equal(pickTint('flat', ['#a1', '#b2']), null);
@@ -188,6 +192,25 @@ await check('F8b any colour can join a gradient, and the palette opens by defaul
   assert.ok(r.tint.includes('#ff8800'));
   await page.keyboard.press('Control+z');
   await page.waitForTimeout(300);
+});
+
+await check('F8c suggested gradients fill the picks in order, flip reverses them, and a preview tile shows the result', async () => {
+  await cell(page, KEY).click();
+  await page.waitForSelector('.pick-swatch');
+  await page.click('#pick-kind [data-value="gradient"]');
+  assert.ok((await page.locator('.pick-idea').count()) >= 1);
+  await page.locator('.pick-idea').first().click();
+  const order = () => page.$$eval('.pick-swatch[aria-pressed="true"]', (els) => els.map((e) => [Number(e.querySelector('b').textContent), e.dataset.hex]).sort((a, b) => a[0] - b[0]).map((x) => x[1]));
+  const first = await order();
+  assert.ok(first.length >= 2);
+  await page.click('#pick-flip');
+  assert.deepEqual(await order(), [...first].reverse());
+  const plate = await page.locator('.pick-result .tile-art').evaluate((e) => [e.className, getComputedStyle(e).backgroundImage]);
+  assert.ok(plate[0].includes('vivid'));
+  assert.ok(plate[1].includes('linear-gradient'));
+  await page.click('#pick-kind [data-value="flat"]');
+  assert.equal(await page.locator('#pick-flip').count(), 0);
+  assert.equal(await page.locator('.pick-idea').count(), 0);
 });
 
 await check('F9 releasing the kept colour drops the picked gradient', async () => {

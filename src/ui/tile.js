@@ -15,7 +15,8 @@ export const paint = (el, rec, { size = 60, mask = null, tint = null, colors = p
   const sig = [kind, real ? tone : '', size, col.tile, col.hi, col.lo, col.ink, col.vivid, kind === 'glyph' ? m : kind === 'none' ? '' : url].join('|');
   if (el._sig === sig) return el;
   const was = el._kind;
-  el.className = 'tile-art' + (real ? ' faithful' + (tone === 'dark' ? ' dk' : '') : col.vivid ? ' vivid' : '');
+  const bare = kind === 'img' && !tint && !(rec && rec.tint);
+  el.className = 'tile-art' + (real ? ' faithful' + (tone === 'dark' ? ' dk' : '') : bare ? ' raw' : col.vivid ? ' vivid' : '');
   const s = el.style;
   s.removeProperty('animation');
   s.setProperty('--size', size + 'px');

@@ -1,5 +1,6 @@
 const en = {
   appName: 'Harvest Studio',
+  heroTag: 'Real favicons in, launcher icons out',
   close: 'Close',
   save: 'Save',
   cancel: 'Cancel',
@@ -92,7 +93,7 @@ const en = {
   dupKeep: 'Keep all · {n}',
   dupCancel: 'Cancel',
   dupMore: '+{n} more',
-  searchPlaceholder: 'Name, address or colour',
+  searchPlaceholder: 'Name, URL, colour',
   groupsTitle: 'Groups',
   filtersTitle: 'Filters',
   groupAll: 'All',

@@ -30,7 +30,7 @@ await check('S3 typos and half-remembered spellings still find the app', () => {
   has(en, 'harvset', 'harvest-studio');
   has(en, 'surviwal', 'survival-mirror');
   has(en, 'platn', 'platen');
-  has(en, 'pwr quer', 'power-query-manager');
+  has(en, 'pwr quer', 'power-query-manager--main');
   has(en, 'typngprac', 'typing-practice');
 });
 
@@ -46,7 +46,7 @@ await check('S5 Arabic matches ignore diacritics, hamza forms and the closing ta
   has(ar, 'خارجي', 'ledger-form--main');
   has(ar, 'الخطه', 'plan-maker--full');
   has(ar, 'الخطّة', 'plan-maker--full');
-  has(ar, 'باور كويري', 'power-query-manager');
+  has(ar, 'باور كويري', 'power-query-manager--main');
   has(en, 'حصاد', 'harvest-studio');
 });
 

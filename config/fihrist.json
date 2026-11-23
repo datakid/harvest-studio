@@ -1,8 +1,8 @@
 {
   "$schema": "./fihrist.schema.json",
   "format": "fihrist/5",
-  "revision": 9,
-  "updated": "2026-11-16",
+  "revision": 10,
+  "updated": "2026-11-23",
   "groups": [
     { "id": "core", "ar": "الأساسية", "en": "Core", "icon": "layers" },
     { "id": "tools", "ar": "الأدوات", "en": "Tools", "icon": "calc" },
@@ -118,18 +118,26 @@
         { "id": "main", "ar": "الرئيسي", "en": "Main", "url": "https://power-query-manager.vercel.app/" },
         { "id": "seam", "ar": "سيم", "en": "Seam", "dar": "إصلاح ملفات وورد وإكسل وباوربوينت التالفة", "den": "Repair damaged Word, Excel and PowerPoint files", "aliases": ["seam", "repair", "fix", "damaged", "corrupt", "corrupted", "office", "excel", "word", "powerpoint", "ismalah", "islah", "إصلاح", "اصلاح", "تالف", "تالفة", "ملف تالف", "أوفيس", "اكسل", "إكسل"], "url": "https://seam-1esq.vercel.app/" }
       ] },
-    { "id": "randomizer", "group": "tools", "pigment": "malachite", "url": "https://randomizer-tawny-mu.vercel.app/", "since": "2026-11-16",
+    { "id": "randomizer", "group": "tools", "pigment": "malachite", "since": "2026-11-16",
       "ar": "مولد ارقام عشوائية", "en": "Randomizer", "dar": "كلمات مرور وجداول واختيار ونرد وأرقام عشوائية", "den": "Passwords, tables, picks, dice and random numbers",
-      "aliases": ["random", "randomizer", "random numbers", "random number generator", "generator", "password", "passwords", "dice", "roll", "pick", "muwallid", "mowalled", "moulid arqam", "arqam ashwaeya", "عشوائي", "عشوائية", "ارقام عشوائية", "أرقام عشوائية", "مولد", "مولد أرقام", "كلمة مرور", "نرد"] },
+      "aliases": ["random", "randomizer", "random numbers", "random number generator", "generator", "password", "passwords", "dice", "roll", "pick", "muwallid", "mowalled", "moulid arqam", "arqam ashwaeya", "عشوائي", "عشوائية", "ارقام عشوائية", "أرقام عشوائية", "مولد", "مولد أرقام", "كلمة مرور", "نرد"], "def": 0,
+      "variants": [
+        { "id": "lite", "ar": "خفيف", "en": "Lite", "aliases": ["lite", "light", "khafif", "خفيف"], "url": "https://randomizer-lite.vercel.app/#number" },
+        { "id": "full", "ar": "الكامل", "en": "Full", "aliases": ["kamel", "complete"], "url": "https://randomizer-tawny-mu.vercel.app/" }
+      ] },
     { "id": "typing-practice", "group": "practice", "pigment": "orpiment", "url": "https://typing-practice-wine-eta.vercel.app/", "since": "2026-10-17",
       "ar": "تمرين الكتابة", "en": "Typing Practice", "dar": "تدريب على الكتابة بلوحة المفاتيح", "den": "Keyboard typing practice",
       "aliases": ["tamreen el-kitaba", "tadreeb", "tadreeb kitaba", "typing", "typing practice", "typing test", "tarq", "keyboard", "kitaba", "تدريب", "تدريب كتابة", "كتابة", "تمرين", "طرق"] },
     { "id": "platen", "group": "practice", "pigment": "verdigris", "url": "https://platen-2zj1.vercel.app/#/t/python/values-types/assignment/a", "since": "2026-11-09",
       "ar": "بلاتن", "en": "Platen", "dar": "تدريب على البرمجة", "den": "Coding practice",
       "aliases": ["coding", "programming", "code", "practice", "exercises", "python", "py", "javascript", "js", "typescript", "ts", "java", "c", "cpp", "c++", "csharp", "c#", "go", "golang", "rust", "sql", "bash", "shell", "html", "css", "php", "ruby", "kotlin", "swift", "dart", "lua", "r", "matlab", "scala", "perl", "haskell", "برمجة", "كود", "تمارين", "تدريب", "بايثون", "جافاسكريبت", "جافا", "تايب سكريبت", "سي", "سي شارب", "جو", "راست", "اس كيو ال"] },
-    { "id": "reaction-time", "group": "practice", "pigment": "tyrian", "url": "https://reaction-time-lovat-mu.vercel.app/", "since": "2026-11-09",
+    { "id": "reaction-time", "group": "practice", "pigment": "tyrian", "since": "2026-11-09",
       "ar": "زمن رد الفعل", "en": "Reaction Time", "dar": "تدريب على زمن رد الفعل وتوقيت الإدخال", "den": "Reaction time and input timing practice",
-      "aliases": ["lull", "reflex", "reflexes", "input timing", "رد الفعل", "ردة الفعل", "زمن الاستجابة"] },
+      "aliases": ["lull", "reflex", "reflexes", "input timing", "رد الفعل", "ردة الفعل", "زمن الاستجابة"], "def": 0,
+      "variants": [
+        { "id": "lite", "ar": "خفيف", "en": "Lite", "aliases": ["lite", "light", "khafif", "خفيف"], "url": "https://reaction-time-lite.vercel.app/" },
+        { "id": "full", "ar": "الكامل", "en": "Full", "aliases": ["kamel", "complete"], "url": "https://reaction-time-lovat-mu.vercel.app/" }
+      ] },
     { "id": "to-do", "group": "experimental", "pigment": "malachite", "url": "https://to-do-cyan-theta.vercel.app/", "since": "2026-08-11",
       "ar": "المهام", "en": "To Do", "dar": "متابعة المهام والتقارير", "den": "Task and report tracker",
       "aliases": ["maham", "taqarir", "reports", "todo", "تقارير"] },
@@ -145,7 +153,8 @@
       "aliases": ["adawat saydaliya", "pharmacy tools", "صيدلية"], "def": 0,
       "variants": [
         { "id": "pillbug", "ar": "إدارة القوائم", "en": "Pillbug", "aliases": ["pillbugs", "lists", "edarat qawaem", "قوائم"], "url": "https://pillbug.vercel.app/" },
-        { "id": "bugvert", "ar": "محول الوحدة", "en": "Bugvert", "aliases": ["converter", "unit converter", "price converter", "mohawel", "mohawel wahda", "محول", "وحدة", "وحدات"], "url": "https://bugvert.vercel.app/" }
+        { "id": "bugvert", "ar": "محول الوحدة", "en": "Bugvert", "aliases": ["converter", "unit converter", "price converter", "mohawel", "mohawel wahda", "محول", "وحدة", "وحدات"], "url": "https://bugvert.vercel.app/" },
+        { "id": "materia", "ar": "ديوان", "en": "Materia", "dar": "دفتر أدوية بجدول للطباعة والتصدير إلى xlsx", "den": "Drug ledger with print and xlsx export", "aliases": ["materia", "diwan", "dewan", "drug ledger", "materia medica", "ديوان", "دفتر الأدوية", "سجل الأدوية", "ماتيريا"], "url": "https://meterial-tau.vercel.app/" }
       ] },
     { "id": "prep", "group": "experimental", "pigment": "verdigris", "since": "2026-09-18",
       "ar": "تجهيز البيانات", "en": "Data Prep", "dar": "تجهيز البيانات وتنقيتها", "den": "Prepare and sift datasets",

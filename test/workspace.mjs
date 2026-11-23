@@ -46,16 +46,17 @@ await check('W1 click, shift-range, ctrl-toggle, select all and Escape drive the
 await check('W2 a batch size change is one undo step for every selected tile', async () => {
   await page.locator('.cell').nth(0).click();
   await page.locator('.cell').nth(2).click({ modifiers: ['Shift'] });
+  await page.waitForFunction(() => document.querySelectorAll('.cell[aria-selected="true"]').length === 3);
   const before = await page.evaluate(() => window.__studio.state.records.size);
+  const scaledCount = (n) => page.waitForFunction((n) => [...window.__studio.state.records.values()].filter((r) => r.adjust && r.adjust.scale !== undefined).length === n, n, { timeout: 10000 });
   await page.keyboard.press(']');
-  await page.waitForTimeout(300);
-  const after = (await recs(page)).filter((r) => r.scale !== null);
-  assert.equal(after.length, 3);
+  await scaledCount(3);
+  assert.equal((await recs(page)).filter((r) => r.scale !== null).length, 3);
   await page.keyboard.press('Control+z');
-  await page.waitForTimeout(300);
+  await scaledCount(0);
   assert.equal((await recs(page)).filter((r) => r.scale !== null).length, 0);
   await page.keyboard.press('Control+Shift+z');
-  await page.waitForTimeout(300);
+  await scaledCount(3);
   assert.equal((await recs(page)).filter((r) => r.scale !== null).length, 3);
   assert.equal(await page.evaluate(() => window.__studio.state.records.size), before);
   await page.keyboard.press('Control+z');
@@ -237,7 +238,7 @@ await check('W14 search is fuzzy, reads aliases, addresses and colours, and rank
   assert.ok(red.length > 0 && red.length < 40);
   assert.equal((await keys('zzzzqx')).length, 0);
   assert.equal(await p.locator('.cell').count(), 0);
-  assert.ok((await keys('')).length === 56);
+  assert.ok((await keys('')).length === 61);
   await p.close();
 });
 

@@ -59,7 +59,7 @@ export const state = {
 
 export const ui = { paletteOpen: null, harmonyKind: 'analogous', harmonyBase: null, paletteName: '', tab: 'look', railOpen: false };
 
-export const mem = { launcherBuild: null };
+export const mem = { launcherBuild: null, launcherSig: null };
 
 export const history = createHistory(100);
 

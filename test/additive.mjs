@@ -234,13 +234,18 @@ await check('T5.11 Start over asks while changes are unsaved, Cancel keeps the w
   const { page: p2 } = await open();
   await harvestFiles(p2, first5.slice(0, 2));
   await p2.waitForFunction(() => window.__studio.state.unsaved === false && window.__studio.saved > 0, null, { timeout: 15000 });
+  const savedBefore = await p2.evaluate(() => window.__studio.saved);
   await p2.setInputFiles('#add-pick-files', [file(names[6])]);
   await settled(p2, 3);
+  await p2.waitForFunction((n) => window.__studio.state.unsaved === false && window.__studio.saved > n, savedBefore, { timeout: 15000 });
+  const dirty = () => p2.evaluate(() => { window.__studio.state.unsaved = true; });
+  await dirty();
   await p2.click('#more-btn');
   await p2.getByRole('menuitem', { name: /Start over/ }).click();
   await p2.waitForSelector('#startover-dialog[open]');
   await p2.click('#startover-cancel');
   assert.equal(await p2.locator('.gallery .cell').count(), 3);
+  await dirty();
   await p2.click('#more-btn');
   await p2.getByRole('menuitem', { name: /Start over/ }).click();
   await p2.click('#startover-ok');

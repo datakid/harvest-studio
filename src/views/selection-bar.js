@@ -9,6 +9,7 @@ import { setTint, setTintLive, setLocked, spreadAcross } from '../actions/colour
 import { adjustCommit, scaleKeys } from '../actions/adjust.js';
 import { reharvestMany, removeTiles } from '../actions/records.js';
 import { clearSelection } from '../actions/select.js';
+import { openExportSelection } from './export-sheet.js';
 import { cleanAdjust } from '../../core/adjust.js';
 
 const act = (id, iconName, label, run, extra = {}) => h('button', { class: 'btn small', id, type: 'button', 'data-act': id, onClick: run, ...extra }, icon(iconName, { size: 16 }), h('span', null, label));
@@ -45,6 +46,7 @@ export const refreshSelectionBar = () => {
       act('sel-render', 'image', t('selRender'), (e) => renderMenu(e.currentTarget), { 'aria-haspopup': 'menu' }),
       act('sel-reharvest', 'reset', t('selReharvest'), () => reharvestMany(keys())),
       act('sel-exclude', 'eye', allOut ? t('selInclude') : t('selExclude'), () => adjustCommit(keys(), (a) => { const next = { ...a }; if (allOut) delete next.exclude; else next.exclude = true; return cleanAdjust(next); })),
+      act('sel-export', 'download', t('selExport'), openExportSelection),
       act('sel-remove', 'trash', t('selRemove'), () => removeTiles(keys())),
       h('button', { class: 'btn icon quiet small', id: 'sel-clear', type: 'button', 'aria-label': t('selClear'), title: t('selClear') + ' (Esc)', onClick: clearSelection }, icon('close', { size: 16 }))
     )

@@ -7,6 +7,7 @@ import { askCollisions } from '../ui/dialogs.js';
 import { decodeRecord, existingUrls, ghostFor } from '../model.js';
 import { applyColours } from './colour.js';
 import { scheduleSave } from './project.js';
+import { selectMany } from './select.js';
 import { fihristSet, launcherSet } from './harvest.js';
 
 export const runAdd = async (targets, updating) => {
@@ -59,6 +60,8 @@ export const runAdd = async (targets, updating) => {
     announce(found.length === 1 ? t('addedTile', { name: state.records.get(found[0]).name }) : t('addedBatch', { n: found.length }));
     const unreached = result.items.filter((i) => i.error && /needs the fetch proxy/.test(i.error)).length;
     if (unreached) toast(t('proxyMissingSome', { n: unreached }));
+    const fresh = targets.map((x) => x.key).filter((k) => !before.has(k) && state.records.has(k));
+    if (state.stage === 'work' && fresh.length && fresh.length <= 24) selectMany(fresh);
     if (state.selected && state.stage === 'work') emit('inspector');
   } catch (e) {
     for (const t of targets) {

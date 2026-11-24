@@ -5,7 +5,7 @@ import { symbolMarkup, symbolLayersMarkup, glyphStats, SYMBOL_MAX_BYTES, LAYERED
 import { resizeTo, CORNER_RATIO } from './pixels.js';
 import { encodePng, resizeStretch } from './codecs.js';
 import { encodeImage, encodeIcoFrames, EXTENSIONS } from './encode.js';
-import { passesContrast } from './color.js';
+import { passesContrast, isHex } from './color.js';
 
 export const SPRITE_GZIP_LIMIT = 40960;
 export const MANIFEST_VERSION = 2;
@@ -173,15 +173,30 @@ export const buildLegacyExport = async (records, { generatedAt, prefix = 'icons/
   return { files, manifest: { version: 1, generatedAt, icons }, gate: { ok: true, failures: [], spriteGzip: 0 }, stats: { count: Object.keys(icons).length } };
 };
 
+const standaloneSvg = (r) => {
+  const layers = r.trace.layers && r.trace.layers.length > 1 ? r.trace.layers : [{ d: r.trace.d, opacity: 1 }];
+  const fill = r.tint && isHex(r.tint[0]) ? r.tint[0] : 'currentColor';
+  const paths = layers.map((l) => '<path' + (l.opacity < 1 ? ' fill-opacity="' + String(l.opacity).replace(/^0\./, '.') + '"' : '') + ' d="' + l.d + '"/>').join('');
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="' + fill + '">' + paths + '</svg>\n';
+};
+
+export const hasVector = (r) => !!(r.trace && r.trace.accepted && (r.trace.d || (r.trace.layers && r.trace.layers.length)));
+
 export const buildCustomExport = async (records, { formats = ['png'], sizes = [192], quality = 90, lossless = false, names = (r, size, ext) => r.key + '-' + size + '.' + ext, extraFiles = {} } = {}) => {
   const entries = {};
   const manifest = {};
   for (const r of [...records].sort(byKey)) {
     if (!r.image) continue;
     manifest[r.key] = { files: [], tint: r.tint || null, status: r.status };
-    for (const size of sizes) {
+    const raster = formats.filter((f) => f !== 'svg');
+    if (formats.includes('svg') && hasVector(r)) {
+      const name = r.key + '.svg';
+      entries[name] = utf8(standaloneSvg(r));
+      manifest[r.key].files.push(name);
+    }
+    for (const size of raster.length ? sizes : []) {
       const frame = size === r.image.width ? r.image : await resizeStretch(r.image, size, size);
-      for (const format of formats) {
+      for (const format of raster) {
         const bytes = await encodeImage(frame, { format: format === 'ico' ? 'ico' : format, quality, lossless });
         const name = names(r, size, EXTENSIONS[format]);
         entries[name] = bytes;

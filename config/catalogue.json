@@ -124,7 +124,8 @@
       "id": "palette", "label": {"ar": "مشغّل بديل", "en": "Alt launcher"},
       "apps": [
         { "id": "alt", "title": {"ar": "الحساب البديل", "en": "Alt Account"}, "url": "https://alt-app-lanucher.vercel.app/", "icon": "fa-user-secret", "gradient": ["#334155", "#94a3b8", "#0f172a"] },
-        { "id": "harvest", "title": {"ar": "الحصاد", "en": "Harvest"}, "url": "https://harvest-studio-phi.vercel.app/", "icon": "fa-rotate-right", "gradient": ["#3f6212", "#a3e635", "#1a2e05"] }
+        { "id": "harvest", "title": {"ar": "الحصاد", "en": "Harvest"}, "url": "https://harvest-studio-phi.vercel.app/", "icon": "fa-rotate-right", "gradient": ["#3f6212", "#a3e635", "#1a2e05"] },
+        { "id": "store", "title": {"ar": "المتجر", "en": "Store"}, "url": "https://static-store-fr76.vercel.app/#/polars-desktop-demo", "icon": "fa-box-open", "gradient": ["#6b3f8f", "#c4a0e8", "#24123a"], "isNew": true, "since": "2026-11-24" }
       ]
     }
   ]

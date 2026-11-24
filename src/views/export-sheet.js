@@ -17,11 +17,12 @@ const scopeKeys = (which) => {
   return imaged().map((r) => r.key);
 };
 
-export const openExport = () => {
+const openSheet = (preset) => {
   state.dirty = true;
   const opts = {
     tab: 'launcher',
     scope: state.sel.size ? 'selection' : 'all',
+    launcherScope: preset.scope || 'all',
     formats: new Set(['png', 'webp']),
     sizes: '32, 64, 128, 192',
     quality: 90,
@@ -38,12 +39,12 @@ export const openExport = () => {
       const area = h('div', { class: 'sheet-section', id: 'export-area' });
       const tabs = h('div', { class: 'tabs-slot' });
 
-      const scopeSeg = () => {
+      const scopeSeg = (field = 'scope') => {
         const n = (w) => scopeKeys(w).length;
         const options = [['all', t('scopeAll', { n: n('all') })], ['visible', t('scopeVisible', { n: n('visible') })]];
         if (state.sel.size) options.unshift(['selection', t('scopeSelection', { n: n('selection') })]);
-        if (!options.some(([v]) => v === opts.scope)) opts.scope = 'all';
-        return seg(t('exportTitle'), options, opts.scope, (v) => { opts.scope = v; render(); }, { id: 'exp-scope' });
+        if (!options.some(([v]) => v === opts[field])) opts[field] = 'all';
+        return seg(t('exportTitle'), options, opts[field], (v) => { opts[field] = v; render(); }, { id: field === 'scope' ? 'exp-scope' : 'exp-launcher-scope' });
       };
 
       const formatNotes = () => [
@@ -73,13 +74,22 @@ export const openExport = () => {
         }, icon('download', { size: 18 }), label);
 
       const renderLauncher = async () => {
-        area.replaceChildren(...kids(...formatNotes(), h('p', { class: 'progress-text', role: 'status' }, t('building'))));
+        const seg0 = scopeSeg('launcherScope');
+        const partial = opts.launcherScope !== 'all';
+        const keys = partial ? scopeKeys(opts.launcherScope) : null;
+        if (partial && !keys.length) {
+          area.replaceChildren(...kids(seg0, h('p', { class: 'hint-text', id: 'exp-empty' }, t('exportEmpty'))));
+          return;
+        }
+        area.replaceChildren(...kids(seg0, ...formatNotes(), h('p', { class: 'progress-text', role: 'status' }, t('building'))));
         try {
-          if (state.dirty || !mem.launcherBuild) {
-            mem.launcherBuild = await runBuild('launcher', {});
+          const sig = partial ? opts.launcherScope + ':' + keys.join(',') : 'all';
+          if (state.dirty || !mem.launcherBuild || mem.launcherSig !== sig) {
+            mem.launcherBuild = await runBuild('launcher', partial ? { keys } : {});
+            mem.launcherSig = sig;
             state.dirty = false;
           }
-          if (opts.tab !== 'launcher' || !area.isConnected) return;
+          if (opts.tab !== 'launcher' || !area.isConnected || (partial ? opts.launcherScope + ':' + scopeKeys(opts.launcherScope).join(',') : 'all') !== sig) return;
           const b = mem.launcherBuild;
           const stat = b.stats;
           const fails = new Set(b.gate.failures.map((f) => f.code));
@@ -93,13 +103,15 @@ export const openExport = () => {
           ];
           const pairs = similarNow().length;
           area.replaceChildren(...kids(
+            seg0,
             ...formatNotes(),
+            partial ? h('p', { class: 'hint-text', id: 'exp-partial' }, t('launcherPartialTip', { n: keys.length, total: imaged().length })) : null,
             h('ul', { class: 'gate' }, items),
             b.gate.failures.length ? h('div', { class: 'note bad' }, b.gate.failures.slice(0, 4).map((f) => h('div', null, f.message))) : h('span', { class: 'pill ok', id: 'gate-ok' }, t('gateOk')),
             h('button', { class: 'btn quiet small', id: 'polish-row', type: 'button', onClick: openPolish }, icon(pairs ? 'warn' : 'check', { size: 16 }), t('polishRow', { n: pairs })),
             h('p', { class: 'hint-text' }, t('reportsIncluded')),
             h('pre', { class: 'code' }, b.files.map((f) => 'icons/' + f).join('\n')),
-            h('div', { class: 'actions-end' }, downloadButton(t('downloadZip'), async () => download(b.zip, 'launcher-icons.zip'), { disabled: !b.gate.ok, id: 'download-launcher' }))
+            h('div', { class: 'actions-end' }, downloadButton(t('downloadZip'), async () => download(b.zip, partial ? 'launcher-icons-' + opts.launcherScope + '.zip' : 'launcher-icons.zip'), { disabled: !b.gate.ok, id: 'download-launcher' }))
           ));
         } catch (err) {
           area.replaceChildren(...kids(h('div', { class: 'note bad' }, t('exportError', { why: err.message }))));
@@ -122,12 +134,14 @@ export const openExport = () => {
 
       const renderCustom = () => {
         const keys = scopeKeys(opts.scope);
-        const fmt = ['png', 'webp', 'avif', 'jxl', 'ico'];
+        const fmt = ['png', 'webp', 'avif', 'jxl', 'ico', 'svg'];
+        const vectors = keys.filter((k) => { const r = state.records.get(k); return r && r.trace && r.trace.accepted; }).length;
         const readout = h('output', { class: 'adj-out', for: 'cu-q' }, String(opts.quality));
         area.replaceChildren(...kids(
           scopeSeg(),
           h('div', { class: 'label' }, t('formats')),
           h('div', { class: 'checks' }, fmt.map((f) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: opts.formats.has(f), onChange: (e) => { if (e.target.checked) opts.formats.add(f); else opts.formats.delete(f); } }), f.toUpperCase()))),
+          h('p', { class: 'hint-text', id: 'cu-svg-note' }, t('svgNoteTip', { n: vectors, total: keys.length })),
           h('div', { class: 'field' }, h('label', { for: 'cu-sizes' }, t('sizes')), h('input', { id: 'cu-sizes', type: 'text', value: opts.sizes, inputmode: 'numeric', onInput: (e) => { opts.sizes = e.target.value; } })),
           h('div', { class: 'range adj-row' }, h('label', { class: 'label', for: 'cu-q' }, t('quality')), h('div', { class: 'adj-ctl' }, h('input', { id: 'cu-q', type: 'range', min: 40, max: 100, value: opts.quality, onInput: (e) => { opts.quality = Number(e.target.value); readout.textContent = String(opts.quality); } }), readout)),
           toggle({ id: 'cu-lossless', label: t('lossless'), checked: opts.lossless, onChange: (on) => { opts.lossless = on; } }),
@@ -151,3 +165,7 @@ export const openExport = () => {
     }
   });
 };
+
+export const openExport = () => openSheet({});
+
+export const openExportSelection = () => openSheet({ scope: 'selection' });

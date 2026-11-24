@@ -184,8 +184,15 @@ const mapLimit = async (items, n, fn) => {
   return out;
 };
 
-const addSiteReports = (files, now) => {
-  const docs = siteReports(lastReport.items, { generatedAt: now });
+const scopeReport = (report, only) => {
+  if (!only) return report;
+  const items = report.items.filter((i) => only.has(i.key));
+  const count = (status) => items.filter((i) => i.status === status).length;
+  return { ...report, items, summary: { ...report.summary, total: items.length, found: count('found'), override: count('override'), stale: count('stale'), blocked: count('blocked'), default: count('default'), notfound: count('notfound') } };
+};
+
+const addSiteReports = (files, now, report = lastReport) => {
+  const docs = siteReports(report.items, { generatedAt: now });
   for (const [name, doc] of Object.entries(docs)) files[name] = new TextEncoder().encode(stableStringify(doc));
 };
 
@@ -376,14 +383,15 @@ const handlers = {
   },
 
   async build(p) {
-    const only = Array.isArray(p.keys) && p.kind !== 'launcher' ? new Set(p.keys) : null;
+    const only = Array.isArray(p.keys) ? new Set(p.keys) : null;
     const patched = [...records.values()].map((r) => ({ ...r, ...(p.patches[r.key] || {}) })).filter((r) => (!only || only.has(r.key)) && (p.kind === 'pack' || p.kind === 'packs' || !(r.adjust && r.adjust.exclude)));
     const sorted = patched.sort((a, b) => (a.key < b.key ? -1 : 1));
     const now = new Date().toISOString();
     if (p.kind === 'launcher') {
       const exp = await buildLauncherExport(sorted, { cell: p.cell || DEFAULT_CELL, generatedAt: now, seed: p.seed, target: p.target === 'v4' ? 'v4' : 'v3' });
-      if (lastReport) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...lastReport, atlas: { cell: lastReport.atlas.cell, cellDefaulted: lastReport.atlas.cellDefaulted, ...exp.stats }, gate: { ok: exp.gate.ok, failures: exp.gate.failures }, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
-      if (lastReport) addSiteReports(exp.files, now);
+      const report = lastReport ? scopeReport(lastReport, only) : null;
+      if (report) exp.files['harvest-report.json'] = new TextEncoder().encode(stableStringify({ ...report, atlas: { cell: report.atlas.cell, cellDefaulted: report.atlas.cellDefaulted, ...exp.stats }, gate: { ok: exp.gate.ok, failures: exp.gate.failures }, generatedAt: now, note: 'Written by the Studio from the last harvest; edits made afterwards are not reflected.' }));
+      if (report) addSiteReports(exp.files, now, report);
       const zip = zipFiles(exp.files, 'icons/');
       return { value: { gate: exp.gate, stats: exp.stats, zip, files: Object.keys(exp.files) }, transfer: [zip.buffer] };
     }

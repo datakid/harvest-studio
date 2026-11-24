@@ -33,7 +33,7 @@ const offline = (extra = {}) => ({
 const run = (io, options = {}, list = targets) => runHarvest({ targets: list, overrides: {} }, { profile: 'launcher', mode: 'follow', now: NOW, ...options }, io);
 
 await check('every catalogue app ships an icon except the ones still waiting for a live save', async () => {
-  assert.equal(targets.length, 35);
+  assert.equal(targets.length, 36);
   for (const t of targets) {
     const shipped = await readKnown(t.key);
     if (AWAITING_ICONS.includes(t.key)) assert.equal(shipped, null, t.key + ' now ships an icon, remove it from AWAITING_ICONS');

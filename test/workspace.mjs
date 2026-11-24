@@ -238,7 +238,7 @@ await check('W14 search is fuzzy, reads aliases, addresses and colours, and rank
   assert.ok(red.length > 0 && red.length < 40);
   assert.equal((await keys('zzzzqx')).length, 0);
   assert.equal(await p.locator('.cell').count(), 0);
-  assert.ok((await keys('')).length === 61);
+  assert.ok((await keys('')).length === 62);
   await p.close();
 });
 

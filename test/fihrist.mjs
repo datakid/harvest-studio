@@ -17,9 +17,9 @@ const both = [...launcherTargets, ...fihristTargets];
 await check('a Fihrist file is recognised and turned into one target per site', () => {
   const scan = core.scanJson(fihrist, {}, 'en');
   assert.equal(scan.kind, 'fihrist');
-  assert.equal(scan.count, 58);
+  assert.equal(scan.count, 61);
   assert.ok(scan.targets.every((t) => /^https?:/.test(t.url) && t.key && t.name));
-  assert.equal(new Set(scan.targets.map((t) => t.key)).size, 58);
+  assert.equal(new Set(scan.targets.map((t) => t.key)).size, 61);
   assert.ok(scan.targets.find((t) => t.key === 'ledger-form--main'));
   assert.ok(scan.targets.some((t) => t.closed));
 });
@@ -40,7 +40,7 @@ await check('address identity ignores scheme, www, case and trailing slash', () 
 
 await check('the launcher set and the Fihrist set share sites and they are found', () => {
   assert.equal(launcherTargets.length, 35);
-  assert.equal(both.length, 93);
+  assert.equal(both.length, 96);
   const groups = core.findDuplicates(both);
   assert.equal(groups.length, 34);
   assert.ok(groups.every((g) => g.entries.length === 2));
@@ -50,7 +50,7 @@ await check('the launcher set and the Fihrist set share sites and they are found
 
 await check('harvesting each site once keeps the first entry of every group and nothing else', () => {
   const once = core.dropDuplicates(both);
-  assert.equal(once.length, 59);
+  assert.equal(once.length, 62);
   assert.deepEqual(once.slice(0, 35), launcherTargets);
   assert.equal(core.findDuplicates(once).length, 0);
   assert.deepEqual(core.dropDuplicates(launcherTargets), launcherTargets);
@@ -93,15 +93,15 @@ const settle = (page, n) => page.waitForFunction((n) => window.__studio.state.it
 await check('three one-click choices are offered with their counts', async () => {
   const page = await open();
   assert.match(await page.locator('#harvest-catalogue').innerText(), /35/);
-  assert.match(await page.locator('#harvest-fihrist').innerText(), /58/);
-  assert.match(await page.locator('#harvest-both').innerText(), /93/);
+  assert.match(await page.locator('#harvest-fihrist').innerText(), /61/);
+  assert.match(await page.locator('#harvest-both').innerText(), /96/);
   await page.context().close();
 });
 
 await check('the Fihrist set alone starts at once because it has no repeats', async () => {
   const page = await open();
   await page.click('#harvest-fihrist');
-  await settle(page, 58);
+  await settle(page, 61);
   assert.equal(await page.locator('#dup-dialog').count(), 0);
   await page.context().close();
 });
@@ -111,29 +111,29 @@ await check('both sets together ask what to do, listing the repeated sites', asy
   await page.click('#harvest-both');
   await page.waitForSelector('#dup-dialog[open]');
   assert.equal(await page.locator('#dup-once').count(), 1);
-  assert.match(await page.locator('#dup-once').innerText(), /59/);
-  assert.match(await page.locator('#dup-keep').innerText(), /93/);
+  assert.match(await page.locator('#dup-once').innerText(), /62/);
+  assert.match(await page.locator('#dup-keep').innerText(), /96/);
   assert.ok((await page.locator('#dup-dialog .dups li').count()) >= 2);
   assert.match(await page.locator('#dup-title').innerText(), /34/);
   await page.context().close();
 });
 
-await check('"each site once" harvests 59 icons', async () => {
+await check('"each site once" harvests 62 icons', async () => {
   const page = await open();
   await page.click('#harvest-both');
   await page.click('#dup-once');
-  await settle(page, 59);
+  await settle(page, 62);
   assert.equal(await page.locator('#dup-dialog').count(), 0);
   await page.context().close();
 });
 
-await check('"keep all entries" harvests all 93 with distinct names', async () => {
+await check('"keep all entries" harvests all 96 with distinct names', async () => {
   const page = await open();
   await page.click('#harvest-both');
   await page.click('#dup-keep');
-  await settle(page, 93);
+  await settle(page, 96);
   const keys = await page.evaluate(() => [...window.__studio.state.items.keys()]);
-  assert.equal(new Set(keys).size, 93);
+  assert.equal(new Set(keys).size, 96);
   await page.context().close();
 });
 

@@ -7,7 +7,7 @@ export const annotate = (file, text) => {
   lines.forEach((line, i) => {
     if (!line.startsWith('FAIL')) return;
     const detail = [];
-    for (let j = i + 1; j < lines.length && lines[j].trim() !== '' && !/^(PASS|FAIL)/.test(lines[j]) && detail.length < 8; j++) detail.push(lines[j].trim());
+    for (let j = i + 1; j < lines.length && !/^(PASS|FAIL|\d+ passed)/.test(lines[j]) && detail.length < 10; j++) if (lines[j].trim() !== '') detail.push(lines[j].trim());
     failures.push([line, ...detail].join('\n'));
   });
   const messages = failures.length ? failures : [lines.filter((l) => l.trim() !== '').slice(-15).join('\n')];

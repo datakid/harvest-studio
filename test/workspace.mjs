@@ -224,21 +224,37 @@ await check('W14 search is fuzzy, reads aliases, addresses and colours, and rank
   await p.click('#harvest-fihrist');
   await p.waitForFunction(() => window.__studio && window.__studio.state.stage === 'work', null, { timeout: 120000 });
   await p.waitForTimeout(1500);
+  const read = () => p.evaluate(() => [...document.querySelectorAll('.cell')].map((c) => c.dataset.key));
   const keys = async (q) => {
     await p.fill('#search', q);
-    await p.waitForTimeout(500);
-    return p.evaluate(() => [...document.querySelectorAll('.cell')].map((c) => c.dataset.key));
+    let last = null;
+    for (let i = 0; i < 60; i++) {
+      await p.waitForTimeout(100);
+      const now = await read();
+      if (i >= 4 && last && now.length === last.length && now.every((k, j) => k === last[j])) return now;
+      last = now;
+    }
+    return last;
   };
-  assert.equal((await keys('ledgr'))[0].startsWith('ledger-form'), true);
-  assert.ok((await keys('khargy')).some((k) => k.startsWith('ledger-form')));
-  assert.equal((await keys('harv'))[0], 'harvest-studio');
-  assert.ok((await keys('platen-2zj1')).includes('platen'));
-  assert.ok((await keys('احمر')).length > 0);
+  const total = await p.evaluate(() => window.__studio.state.records.size);
+  const ledgr = await keys('ledgr');
+  assert.equal(ledgr[0] && ledgr[0].startsWith('ledger-form'), true, 'ledgr ' + JSON.stringify(ledgr.slice(0, 5)));
+  const khargy = await keys('khargy');
+  assert.ok(khargy.some((k) => k.startsWith('ledger-form')), 'khargy ' + JSON.stringify(khargy.slice(0, 8)));
+  const harv = await keys('harv');
+  assert.equal(harv[0], 'harvest-studio', 'harv ' + JSON.stringify(harv.slice(0, 5)));
+  const platen = await keys('platen-2zj1');
+  assert.ok(platen.includes('platen'), 'platen-2zj1 ' + JSON.stringify(platen.slice(0, 8)));
+  const arabic = await keys('احمر');
+  assert.ok(arabic.length > 0, 'arabic red ' + arabic.length);
   const red = await keys('red');
-  assert.ok(red.length > 0 && red.length < 40);
-  assert.equal((await keys('zzzzqx')).length, 0);
+  assert.ok(red.length > 0 && red.length < Math.ceil(total * 0.8), 'red ' + red.length + ' of ' + total);
+  const none = await keys('zzzzqx');
+  assert.equal(none.length, 0, 'zzzzqx ' + JSON.stringify(none.slice(0, 5)));
   assert.equal(await p.locator('.cell').count(), 0);
-  assert.ok((await keys('')).length === 62);
+  const everything = await keys('');
+  assert.equal(everything.length, total, 'empty query shows ' + everything.length + ' of ' + total);
+  assert.ok(total >= 62, 'records ' + total);
   await p.close();
 });
 

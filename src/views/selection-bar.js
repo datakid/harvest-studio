@@ -25,21 +25,35 @@ const colourPop = (anchor) => {
 const renderMenu = (anchor) =>
   menu(anchor, [['', t('adjAuto')], ['glyph', t('adjGlyph')], ['image', t('adjImage')]].map(([v, label]) => ({ label, run: () => adjustCommit(keys(), (a) => { const next = { ...a }; if (v) next.render = v; else delete next.render; return cleanAdjust(next); }) })), { label: t('selRender') });
 
+let shown = '';
+
 export const refreshSelectionBar = () => {
   const slot = document.getElementById('selbar-slot');
   if (!slot) return;
   const recs = selectedRecs();
   if (recs.length < 2) {
-    slot.replaceChildren();
+    shown = '';
+    if (slot.firstChild) slot.replaceChildren();
     return;
   }
   const allKept = recs.every((r) => r.locked);
   const allOut = recs.every(isExcluded);
+  const signature = [allKept, allOut, t('selRemove')].join('|');
+  const label = t('selectedN', { n: recs.length });
+  const bar = slot.firstChild;
+  if (bar && shown === signature) {
+    if (bar.getAttribute('aria-label') !== label) {
+      bar.setAttribute('aria-label', label);
+      bar.firstChild.textContent = label;
+    }
+    return;
+  }
+  shown = signature;
   slot.replaceChildren(...kids(
     h(
       'div',
-      { class: 'selbar', id: 'selection-bar', role: 'toolbar', 'aria-label': t('selectedN', { n: recs.length }) },
-      h('span', { class: 'selbar-count' }, t('selectedN', { n: recs.length })),
+      { class: 'selbar', id: 'selection-bar', role: 'toolbar', 'aria-label': label },
+      h('span', { class: 'selbar-count' }, label),
       act('sel-colour-btn', 'palette', t('selColour'), (e) => colourPop(e.currentTarget), { 'aria-haspopup': 'dialog' }),
       act('sel-keep', 'lock', allKept ? t('selUnkeep') : t('selKeep'), () => setLocked(keys(), !allKept), { 'aria-pressed': String(allKept) }),
       act('sel-size', 'sliders', t('selSize'), (e) => menu(e.currentTarget, [{ label: t('sizeSmaller'), run: () => scaleKeys(keys(), 0.95) }, { label: t('sizeLarger'), run: () => scaleKeys(keys(), 1.05) }], { label: t('selSize') }), { 'aria-haspopup': 'menu' }),

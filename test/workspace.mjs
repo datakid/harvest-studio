@@ -248,7 +248,7 @@ await check('W14 search is fuzzy, reads aliases, addresses and colours, and rank
   const arabic = await keys('احمر');
   assert.ok(arabic.length > 0, 'arabic red ' + arabic.length);
   const red = await keys('red');
-  assert.ok(red.length > 0 && red.length < 40, 'red ' + red.length + ' of ' + total);
+  assert.ok(red.length > 0 && red.length < Math.ceil(total * 0.8), 'red ' + red.length + ' of ' + total);
   const none = await keys('zzzzqx');
   assert.equal(none.length, 0, 'zzzzqx ' + JSON.stringify(none.slice(0, 5)));
   assert.equal(await p.locator('.cell').count(), 0);

@@ -130,8 +130,18 @@ export const refreshInspectorArt = () => {
   el.querySelectorAll('.look-previews .preview-cell > .tile-art').forEach((a, i) => paint(a, rec, { size: 52, colors: i < 2 ? 'vivid' : 'muted', theme: i % 2 ? 'dark' : 'light', faithful: false }));
 };
 
-on('inspector', renderInspector);
-on('selection', renderInspector);
+let queued = false;
+const scheduleInspector = () => {
+  if (queued) return;
+  queued = true;
+  queueMicrotask(() => {
+    queued = false;
+    renderInspector();
+  });
+};
+
+on('inspector', scheduleInspector);
+on('selection', scheduleInspector);
 on('adjust-panel', renderAdjust);
 on('tiles-lite', refreshInspectorArt);
-on('tiles', renderInspector);
+on('tiles', scheduleInspector);

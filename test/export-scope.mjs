@@ -270,6 +270,91 @@ await check('E14 a partial launcher set opens again from its manifest and atlas 
   await ctx.close();
 });
 
+const startSampler = (page) => page.evaluate(() => {
+  const run = { on: true, frames: [] };
+  const tick = () => {
+    if (!run.on) return;
+    const body = document.querySelector('.exp-body');
+    run.frames.push({ gate: !!document.querySelector('#export-sheet .gate'), progress: !!document.querySelector('#export-sheet .progress-text'), empty: !body || body.childElementCount === 0 });
+    requestAnimationFrame(tick);
+  };
+  window.__sampler = run;
+  requestAnimationFrame(tick);
+});
+const stopSampler = (page) => page.evaluate(() => {
+  window.__sampler.on = false;
+  return window.__sampler.frames;
+});
+
+await check('E15 changing the scope keeps the controls in place and never blanks the sheet', async () => {
+  const page = await open();
+  await selectFirst(page, 3);
+  await page.click('#export-btn');
+  await page.waitForSelector('#export-sheet .gate', { timeout: 120000 });
+  await page.evaluate(() => {
+    window.__tabs = document.getElementById('exp-tabs');
+    window.__scope = document.getElementById('exp-launcher-scope');
+    window.__tabButtons = [...window.__tabs.children];
+  });
+  await startSampler(page);
+  await page.click('#exp-launcher-scope [data-value="selection"]');
+  await page.waitForSelector('#exp-partial', { timeout: 120000 });
+  await page.waitForTimeout(150);
+  const frames = await stopSampler(page);
+  assert.ok(frames.length >= 3, String(frames.length));
+  assert.ok(frames.every((f) => f.gate && !f.empty), JSON.stringify(frames.filter((f) => !f.gate || f.empty).slice(0, 3)));
+  const same = await page.evaluate(() => document.getElementById('exp-tabs') === window.__tabs && document.getElementById('exp-launcher-scope') === window.__scope && [...window.__tabs.children].every((b, i) => b === window.__tabButtons[i]));
+  assert.equal(same, true);
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.dataset.value), 'selection');
+  assert.equal(await scopeValue(page, 'exp-launcher-scope'), 'selection');
+  await page.context().close();
+});
+
+await check('E16 switching tabs keeps the tab bar, and returning to a built launcher set is instant', async () => {
+  const page = await open();
+  await selectFirst(page, 2);
+  await page.click('#export-btn');
+  await page.waitForSelector('#export-sheet .gate', { timeout: 120000 });
+  await page.evaluate(() => { window.__tabs = document.getElementById('exp-tabs'); });
+  await page.getByRole('radio', { name: 'Custom' }).click();
+  await page.waitForSelector('#cu-svg-note');
+  assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.textContent), 'Custom');
+  await startSampler(page);
+  await page.getByRole('radio', { name: 'Launcher set' }).click();
+  await page.waitForSelector('#export-sheet .gate');
+  await page.waitForTimeout(150);
+  const frames = await stopSampler(page);
+  assert.ok(frames.every((f) => !f.progress), 'a progress placeholder flashed');
+  assert.equal(await page.evaluate(() => document.getElementById('exp-tabs') === window.__tabs), true);
+  assert.equal(await page.evaluate(() => document.querySelector('.exp-body').classList.contains('exp-pending')), false);
+  await page.context().close();
+});
+
+await check('E17 the selection bar is updated in place while the selection grows, shrinks and tiles are added', async () => {
+  const page = await open();
+  await selectFirst(page, 3);
+  await page.evaluate(() => {
+    window.__bar = document.getElementById('selection-bar');
+    window.__buttons = [...window.__bar.querySelectorAll('button')];
+    window.__removed = 0;
+    new MutationObserver((list) => { for (const m of list) for (const n of m.removedNodes) if (n === window.__bar) window.__removed++; }).observe(document.getElementById('selbar-slot'), { childList: true });
+  });
+  await page.locator('.cell').nth(3).click({ modifiers: ['Control'] });
+  await page.waitForFunction(() => document.querySelectorAll('.cell[aria-selected="true"]').length === 4);
+  assert.match(await page.locator('.selbar-count').innerText(), /4/);
+  await page.locator('.cell').nth(3).click({ modifiers: ['Control'] });
+  await page.waitForFunction(() => document.querySelectorAll('.cell[aria-selected="true"]').length === 3);
+  assert.match(await page.locator('.selbar-count').innerText(), /3/);
+  const extra = fs.readdirSync(fixturesDir).filter((f) => f.endsWith('.png')).map((f) => path.join(fixturesDir, f)).filter((f) => !files.includes(f)).slice(0, 2);
+  await page.setInputFiles('#add-pick-files', extra);
+  await page.waitForFunction(() => window.__studio.state.records.size === 14 && window.__studio.state.adding === 0, null, { timeout: 120000 });
+  await page.waitForFunction(() => window.__studio.state.sel.size === 2);
+  const stable = await page.evaluate(() => ({ removed: window.__removed, same: document.getElementById('selection-bar') === window.__bar && [...window.__bar.querySelectorAll('button')].every((b, i) => b === window.__buttons[i]) }));
+  assert.equal(stable.same, true);
+  assert.equal(stable.removed, 0);
+  await page.context().close();
+});
+
 await check('E12 no console errors', () => assert.deepEqual(logs, []));
 
 await browser.close();

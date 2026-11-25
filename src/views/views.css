@@ -162,6 +162,8 @@ body[data-dragging="true"] .intake-field { border-color: var(--accent); border-s
 .actions-end { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: flex-end; }
 .mono { font-family: ui-monospace, Menlo, monospace; }
 .hint-text { margin: 0; color: var(--muted); font-size: var(--fs-sm); }
+.exp-body { transition: opacity .15s ease; }
+.exp-body.exp-pending { opacity: .5; pointer-events: none; }
 pre.code { margin: 0; padding: var(--s3); border-radius: var(--r-sm); background: var(--surface-2); font-size: var(--fs-xs); overflow: auto; max-block-size: 160px; text-align: left; direction: ltr; white-space: pre; }
 
 .popover.wide { inline-size: min(380px, calc(100vw - 24px)); }

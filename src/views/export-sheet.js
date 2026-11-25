@@ -36,15 +36,30 @@ const openSheet = (preset) => {
     title: t('exportTitle'),
     wide: true,
     build: (api) => {
-      const area = h('div', { class: 'sheet-section', id: 'export-area' });
+      const slot = h('div', { class: 'exp-scope' });
+      const body = h('div', { class: 'sheet-section exp-body' });
+      const area = h('div', { class: 'sheet-section', id: 'export-area' }, slot, body);
       const tabs = h('div', { class: 'tabs-slot' });
+      const segs = {};
+      let token = 0;
 
-      const scopeSeg = (field = 'scope') => {
-        const n = (w) => scopeKeys(w).length;
-        const options = [['all', t('scopeAll', { n: n('all') })], ['visible', t('scopeVisible', { n: n('visible') })]];
-        if (state.sel.size) options.unshift(['selection', t('scopeSelection', { n: n('selection') })]);
-        if (!options.some(([v]) => v === opts[field])) opts[field] = 'all';
-        return seg(t('exportTitle'), options, opts[field], (v) => { opts[field] = v; render(); }, { id: field === 'scope' ? 'exp-scope' : 'exp-launcher-scope' });
+      const swap = (view, ...nodes) => {
+        body.replaceChildren(...nodes);
+        body.dataset.view = view;
+        body.classList.remove('exp-pending');
+        body.removeAttribute('aria-busy');
+        body.style.minHeight = '';
+      };
+
+      const scopeSeg = (field) => {
+        if (!segs[field]) {
+          const n = (w) => scopeKeys(w).length;
+          const options = [['all', t('scopeAll', { n: n('all') })], ['visible', t('scopeVisible', { n: n('visible') })]];
+          if (state.sel.size) options.unshift(['selection', t('scopeSelection', { n: n('selection') })]);
+          if (!options.some(([v]) => v === opts[field])) opts[field] = 'all';
+          segs[field] = seg(t('exportTitle'), options, opts[field], (v) => { opts[field] = v; segs[field].set(v); render(); }, { id: field === 'scope' ? 'exp-scope' : 'exp-launcher-scope' });
+        }
+        return segs[field];
       };
 
       const formatNotes = () => [
@@ -61,6 +76,7 @@ const openSheet = (preset) => {
           onClick: async (e) => {
             const b = e.currentTarget;
             const keep = [...b.childNodes];
+            b.style.minWidth = b.offsetWidth + 'px';
             b.disabled = true;
             b.replaceChildren(t('building'));
             try {
@@ -70,26 +86,35 @@ const openSheet = (preset) => {
             }
             b.replaceChildren(...keep);
             b.disabled = disabled;
+            b.style.minWidth = '';
           }
         }, icon('download', { size: 18 }), label);
 
       const renderLauncher = async () => {
-        const seg0 = scopeSeg('launcherScope');
+        const mine = token;
         const partial = opts.launcherScope !== 'all';
         const keys = partial ? scopeKeys(opts.launcherScope) : null;
         if (partial && !keys.length) {
-          area.replaceChildren(...kids(seg0, h('p', { class: 'hint-text', id: 'exp-empty' }, t('exportEmpty'))));
+          swap('launcher', h('p', { class: 'hint-text', id: 'exp-empty' }, t('exportEmpty')));
           return;
         }
-        area.replaceChildren(...kids(seg0, ...formatNotes(), h('p', { class: 'progress-text', role: 'status' }, t('building'))));
+        const sig = partial ? opts.launcherScope + ':' + keys.join(',') : 'all';
+        const stale = state.dirty || !mem.launcherBuild || mem.launcherSig !== sig;
+        if (stale && body.dataset.view === 'launcher' && body.firstChild) {
+          body.style.minHeight = body.offsetHeight + 'px';
+          body.classList.add('exp-pending');
+          body.setAttribute('aria-busy', 'true');
+        } else if (stale) {
+          swap('launcher', ...kids(...formatNotes(), h('p', { class: 'progress-text', role: 'status' }, t('building'))));
+        }
         try {
-          const sig = partial ? opts.launcherScope + ':' + keys.join(',') : 'all';
-          if (state.dirty || !mem.launcherBuild || mem.launcherSig !== sig) {
-            mem.launcherBuild = await runBuild('launcher', partial ? { keys } : {});
+          if (stale) {
+            const built = await runBuild('launcher', partial ? { keys } : {});
+            if (mine !== token || !area.isConnected) return;
+            mem.launcherBuild = built;
             mem.launcherSig = sig;
             state.dirty = false;
           }
-          if (opts.tab !== 'launcher' || !area.isConnected || (partial ? opts.launcherScope + ':' + scopeKeys(opts.launcherScope).join(',') : 'all') !== sig) return;
           const b = mem.launcherBuild;
           const stat = b.stats;
           const fails = new Set(b.gate.failures.map((f) => f.code));
@@ -102,8 +127,7 @@ const openSheet = (preset) => {
             line(!fails.has('contrast'), t('gateContrast'), contrastFails ? t('gateLow', { n: contrastFails }) : '3:1')
           ];
           const pairs = similarNow().length;
-          area.replaceChildren(...kids(
-            seg0,
+          swap('launcher', ...kids(
             ...formatNotes(),
             partial ? h('p', { class: 'hint-text', id: 'exp-partial' }, t('launcherPartialTip', { n: keys.length, total: imaged().length })) : null,
             h('ul', { class: 'gate' }, items),
@@ -114,14 +138,13 @@ const openSheet = (preset) => {
             h('div', { class: 'actions-end' }, downloadButton(t('downloadZip'), async () => download(b.zip, partial ? 'launcher-icons-' + opts.launcherScope + '.zip' : 'launcher-icons.zip'), { disabled: !b.gate.ok, id: 'download-launcher' }))
           ));
         } catch (err) {
-          area.replaceChildren(...kids(h('div', { class: 'note bad' }, t('exportError', { why: err.message }))));
+          if (mine === token) swap('error', h('div', { class: 'note bad' }, t('exportError', { why: err.message })));
         }
       };
 
       const renderPacks = () => {
         const keys = scopeKeys(opts.scope);
-        area.replaceChildren(...kids(
-          scopeSeg(),
+        swap('pack', ...kids(
           h('p', { class: 'hint-text' }, keys.length ? t('packSizes') : t('exportEmpty')),
           h('div', { class: 'row' }, h('div', { class: 'field' }, h('label', { class: 'label' }, t('packBackground')), colourField({ value: opts.background, label: t('packBackground'), id: 'pk-bg', onLive: (v) => { opts.background = v; }, onCommit: (v) => { opts.background = v; } })), h('div', { class: 'field' }, h('label', { class: 'label' }, t('packTheme')), colourField({ value: opts.themeColor || '#1a211e', label: t('packTheme'), id: 'pk-theme', onLive: (v) => { opts.themeColor = v; }, onCommit: (v) => { opts.themeColor = v; } }))),
           h('div', { class: 'actions-end' }, downloadButton(t('downloadZip'), async () => {
@@ -137,8 +160,7 @@ const openSheet = (preset) => {
         const fmt = ['png', 'webp', 'avif', 'jxl', 'ico', 'svg'];
         const vectors = keys.filter((k) => { const r = state.records.get(k); return r && r.trace && r.trace.accepted; }).length;
         const readout = h('output', { class: 'adj-out', for: 'cu-q' }, String(opts.quality));
-        area.replaceChildren(...kids(
-          scopeSeg(),
+        swap('custom', ...kids(
           h('div', { class: 'label' }, t('formats')),
           h('div', { class: 'checks' }, fmt.map((f) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: opts.formats.has(f), onChange: (e) => { if (e.target.checked) opts.formats.add(f); else opts.formats.delete(f); } }), f.toUpperCase()))),
           h('p', { class: 'hint-text', id: 'cu-svg-note' }, t('svgNoteTip', { n: vectors, total: keys.length })),
@@ -153,8 +175,13 @@ const openSheet = (preset) => {
         ));
       };
 
+      const tabSeg = seg(t('exportTitle'), [['launcher', t('scopeLauncher')], ['pack', t('scopePack')], ['custom', t('scopeCustom')]], opts.tab, (v) => { opts.tab = v; tabSeg.set(v); render(); }, { wide: true, id: 'exp-tabs' });
+      tabs.append(tabSeg);
+
       const render = () => {
-        tabs.replaceChildren(...kids(seg(t('exportTitle'), [['launcher', t('scopeLauncher')], ['pack', t('scopePack')], ['custom', t('scopeCustom')]], opts.tab, (v) => { opts.tab = v; render(); }, { wide: true, id: 'exp-tabs' })));
+        token++;
+        const control = scopeSeg(opts.tab === 'launcher' ? 'launcherScope' : 'scope');
+        if (slot.firstChild !== control) slot.replaceChildren(control);
         if (opts.tab === 'launcher') renderLauncher();
         else if (opts.tab === 'pack') renderPacks();
         else renderCustom();
